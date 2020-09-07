@@ -30,6 +30,9 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
 // ConfigureServeMux configures the main mux with a handler for SystemInfo and another for everything else
 func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
 	s.Handle("/__SYSTEMINFO", basicAuth(showSystemInfo(), conf.AdminName, conf.AdminPass, "Restricted"))
+	s.HandleFunc("/__RRROUTER/health", func(w http.ResponseWriter, req *http.Request) {
+		fmt.Fprintf(w, "OK")
+	})
 	s.HandleFunc("/", requestHandler(router, logger))
 }
 

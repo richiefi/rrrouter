@@ -185,3 +185,5 @@ If an incoming request has an invalid `Richie-Routing-Secret` or it's missing bu
 ## System information
 
 There's an admin endpoint, `/__SYSTEMINFO`, for checking state of the system rrrouter is running on. The endpoint requires that the `ADMIN_NAME` and `ADMIN_PASS` environment variables are set.
+
+The `/__RRROUTER/health` endpoint always returns 200 OK.
