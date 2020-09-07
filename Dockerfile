@@ -1,0 +1,15 @@
+FROM golang:buster
+WORKDIR /app
+COPY . .
+RUN go vet ./...
+RUN go test -tags=integration ./...
+RUN go install github.com/richiefi/rrrouter/cmd/richie-request-router
+
+FROM debian:buster
+COPY --from=0 /go/bin/richie-request-router .
+ENTRYPOINT ["./richie-request-router"]
+CMD ["start"]
+
+# Document that the service listens on port 5000.
+EXPOSE 5000
+ENV PORT 5000
