@@ -10,16 +10,17 @@ import (
 
 // Rule describes a single forwarding rule
 type Rule struct {
-	pattern  string
-	re       *regexp.Regexp
-	dest     string
-	internal bool
-	methods  map[string]bool
-	ruleType ruleType
+	pattern        string
+	re             *regexp.Regexp
+	dest           string
+	internal       bool
+	methods        map[string]bool
+	ruleType       ruleType
+	addCompression bool
 }
 
 // NewRule builds a new Rule
-func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType) (*Rule, error) {
+func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, addCompression bool) (*Rule, error) {
 	lowpat := strings.ToLower(pattern)
 	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://"))
 	inputParts := strings.Split(pattern, "*")
@@ -49,6 +50,7 @@ func NewRule(pattern, destination string, internal bool, methods map[string]bool
 		internal: internal,
 		methods:  methods,
 		ruleType: ruleType,
+		addCompression: addCompression,
 	}
 
 	// First parse the main destination
