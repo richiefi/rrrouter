@@ -14,6 +14,259 @@ import (
 	"github.com/stretchr/testify/require"
 )
 
+var brBody = "\x8B\x02\x80\x5B\x22\x4F\x4B\x22\x5D"
+var gzBody = "\x1F\x8B\x08\x00\xB6\xCD\x97\x5F\x00\x03\x8B\x56\xF2\xF7\x56\x8A\x05\x00\xD0\x64\x5A\x61\x06\x00\x00\x00"
+var plainBody = "[\"OK\"]"
+
+func TestConnection_client_requests_brotli_but_compression_override_is_not_set_and_client_gets_gzip(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "br", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(gzBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			AddCompression: false,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	header := http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Authorization", resp.Header.Get("Vary"))
+}
+
+func TestConnection_client_requests_brotli_from_origin_gets_brotli(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "br", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		w.Header().Set("Content-Encoding", "br")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(brBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			AddCompression: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	header := http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(brBody), body)
+	require.Equal(t, resp.Header.Get("Content-Encoding"), "br")
+}
+
+func TestConnection_client_requests_brotli_from_gzip_origin_gets_brotli(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "br", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Authorization")
+		w.Header().Set("Etag", "1234")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(gzBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			AddCompression: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	header := http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(brBody), body)
+	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Authorization, Content-Encoding", resp.Header.Get("Vary"))
+	require.Equal(t, "1234", resp.Header.Get("Etag"))
+}
+
+func TestConnection_client_requests_gzip_from_gzip_origin_gets_gzip(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "gzip, deflate", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Vary", "Authorization")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(gzBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			AddCompression: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	header := http.Header{}
+	header.Set("Accept-Encoding", "gzip, deflate")
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Authorization", resp.Header.Get("Vary"))
+}
+
+func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_type_origin_gets_brotli(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "br", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		if r.URL.Path == "/text" {
+			w.Header().Set("Content-Type", "text/whatever")
+		} else if r.URL.Path == "/json" {
+			w.Header().Set("Content-Type", "application/json")
+		} else if r.URL.Path == "/xml" {
+			w.Header().Set("Content-Type", "application/xml")
+		}
+		if len(r.URL.Query().Get("encoding")) > 0 {
+			w.Header().Set("Content-Encoding", r.URL.Query().Get("encoding"))
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(plainBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			AddCompression: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	// JSON, plain
+	header := http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp := sh.getURLQuery("/t/json?encoding=identity", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(brBody), body)
+	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Content-Encoding", resp.Header.Get("Vary"))
+
+	// JSON, plain, no content-encoding header in the source
+	header = http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp = sh.getURLQuery("/t/json", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body = sh.readBody(resp)
+	require.Equal(t, []byte(brBody), body)
+	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Content-Encoding", resp.Header.Get("Vary"))
+
+	// text/*, plain
+	header = http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp = sh.getURLQuery("/t/text?encoding=identity", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body = sh.readBody(resp)
+	require.Equal(t, []byte(brBody), body)
+	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Content-Encoding", resp.Header.Get("Vary"))
+
+	// application/xml, plain: not compressed
+	header = http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp = sh.getURLQuery("/t/xml?encoding=identity", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body = sh.readBody(resp)
+	require.Equal(t, []byte(plainBody), body)
+	require.Equal(t, "identity", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "", resp.Header.Get("Vary"))
+}
+
 func TestConnection_internal_headers_added(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
