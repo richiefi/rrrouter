@@ -140,7 +140,7 @@ func TestConnection_client_requests_brotli_from_gzip_origin_gets_brotli(t *testi
 	body := sh.readBody(resp)
 	require.Equal(t, []byte(brBody), body)
 	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
-	require.Equal(t, "Authorization, Content-Encoding", resp.Header.Get("Vary"))
+	require.Equal(t, "Authorization, Accept-Encoding", resp.Header.Get("Vary"))
 	require.Equal(t, "1234", resp.Header.Get("Etag"))
 }
 
@@ -234,7 +234,7 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 	body := sh.readBody(resp)
 	require.Equal(t, []byte(brBody), body)
 	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
-	require.Equal(t, "Content-Encoding", resp.Header.Get("Vary"))
+	require.Equal(t, "Accept-Encoding", resp.Header.Get("Vary"))
 
 	// JSON, plain, no content-encoding header in the source
 	header = http.Header{}
@@ -244,7 +244,7 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 	body = sh.readBody(resp)
 	require.Equal(t, []byte(brBody), body)
 	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
-	require.Equal(t, "Content-Encoding", resp.Header.Get("Vary"))
+	require.Equal(t, "Accept-Encoding", resp.Header.Get("Vary"))
 
 	// text/*, plain
 	header = http.Header{}
@@ -254,7 +254,7 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 	body = sh.readBody(resp)
 	require.Equal(t, []byte(brBody), body)
 	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
-	require.Equal(t, "Content-Encoding", resp.Header.Get("Vary"))
+	require.Equal(t, "Accept-Encoding", resp.Header.Get("Vary"))
 
 	// application/xml, plain: not compressed
 	header = http.Header{}

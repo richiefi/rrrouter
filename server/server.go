@@ -84,10 +84,10 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			header.Del(headerContentLengthKey)
 			header.Set(headerContentEncodingKey, util.ContentEncodingFromCompressionType(reqres.AddCompressionType))
 			vary := header.Get(headerVaryKey)
-			if len(vary) > 0 && ! strings.Contains(strings.ToLower(vary), strings.ToLower(headerContentEncodingKey)) {
-				vary = vary + ", " + headerContentEncodingKey
+			if len(vary) > 0 && ! strings.Contains(strings.ToLower(vary), strings.ToLower(headerAcceptEncodingKey)) {
+				vary = vary + ", " + headerAcceptEncodingKey
 			} else {
-				vary = headerContentEncodingKey
+				vary = headerAcceptEncodingKey
 			}
 			header.Set(headerVaryKey, vary)
 		} else {
@@ -127,6 +127,7 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 }
 
 var headerContentEncodingKey = "Content-Encoding"
+var headerAcceptEncodingKey  = "Accept-Encoding"
 var headerContentLengthKey   = "Content-Length"
 var headerVaryKey            = "Vary"
 
