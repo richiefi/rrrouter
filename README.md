@@ -118,6 +118,25 @@ You can specify that a rule applies to only a subset of HTTP methods. To do this
 }
 ```
 
+## Response compression
+
+You can specify that a request with Accept-Encoding of either `br` or `gzip` should be fulfilled by rrrouter. For example, if the request specifies `Accept-Encoding: br` and the origin response is `application/json` with no `Content-Encoding` applied, rrrouter will compress it with Brotli and return `Content-Encoding: br`.
+
+Additionally, with a client request with `Accept-Encoding: br`, origin being `Content-Encoding: gzip` the content will be first decompressed and re-compressed with Brotli.
+
+Only plain text types `application/json` and `text/<anything>`, when `Content-Encoding` is missing or `identity` will be compressed with the desired `Accept-Encoding`.
+
+Compression level can be specified with environment variables BROTLI_LEVEL (0-11, defaults to 0) and GZIP_LEVEL (1-9, defaults to 1)
+
+Rules without this field default to not performing any compression.
+
+```yaml
+rules:
+    - destination: https://richie-appconfig.herokuapp.com/v1/$1
+      pattern: app.example.com/config/v1/*
+      addRemoveCompression: true
+```
+
 ## Traffic Copying
 
 In addition to proxying requests, rrrouter can copy traffic to a host without reporting this to the user.
