@@ -8,6 +8,7 @@ import (
 	"net/http"
 	"os/exec"
 	"strconv"
+	"strings"
 
 	apexlog "github.com/apex/log"
 
@@ -79,7 +80,7 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger) func(http.Respo
 			header.Del(headerContentLengthKey)
 			header.Set(headerContentEncodingKey, util.ContentEncodingFromCompressionType(reqres.AddCompressionType))
 			vary := header.Get(headerVaryKey)
-			if len(vary) > 0 {
+			if len(vary) > 0 && ! strings.Contains(strings.ToLower(vary), strings.ToLower(headerContentEncodingKey)) {
 				vary = vary + ", " + headerContentEncodingKey
 			} else {
 				vary = headerContentEncodingKey
