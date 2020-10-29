@@ -25,8 +25,8 @@ const (
 )
 
 type requestResult struct {
-	Response            *http.Response
-	AddCompressionType  util.CompressionType
+	Response           *http.Response
+	AddCompressionType util.CompressionType
 }
 
 // Router is the meat of rrrouter
@@ -155,12 +155,12 @@ func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
 	}
 
 	addCompressionType := util.CompressionTypeNone
-	if (requestsResult.addCompression) {
+	if requestsResult.addCompression {
 		addCompressionType = util.GetAddCompressionType(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
 	}
 
 	return &requestResult{
-		Response: mainResp,
+		Response:           mainResp,
 		AddCompressionType: addCompressionType,
 	}, nil
 }
@@ -285,8 +285,8 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 		}
 	}
 	return &createRequestsResult{
-		mainRequest: mainRequest,
-		copyRequest: copyRequest,
+		mainRequest:    mainRequest,
+		copyRequest:    copyRequest,
 		addCompression: addCompression,
 	}, err
 }

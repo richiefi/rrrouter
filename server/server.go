@@ -68,7 +68,7 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		if reqres.AddCompressionType != util.CompressionTypeNone {
 			if reqres.Response.Header.Get(headerContentEncodingKey) == "gzip" {
 				reader, err = util.NewGzipDecodingReader(reqres.Response.Body)
-				if (err != nil) {
+				if err != nil {
 					writeError(w, err)
 					return
 				}
@@ -84,7 +84,7 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			header.Del(headerContentLengthKey)
 			header.Set(headerContentEncodingKey, util.ContentEncodingFromCompressionType(reqres.AddCompressionType))
 			vary := header.Get(headerVaryKey)
-			if len(vary) > 0 && ! strings.Contains(strings.ToLower(vary), strings.ToLower(headerAcceptEncodingKey)) {
+			if len(vary) > 0 && !strings.Contains(strings.ToLower(vary), strings.ToLower(headerAcceptEncodingKey)) {
 				vary = vary + ", " + headerAcceptEncodingKey
 			} else {
 				vary = headerAcceptEncodingKey
@@ -127,9 +127,9 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 }
 
 var headerContentEncodingKey = "Content-Encoding"
-var headerAcceptEncodingKey  = "Accept-Encoding"
-var headerContentLengthKey   = "Content-Length"
-var headerVaryKey            = "Vary"
+var headerAcceptEncodingKey = "Accept-Encoding"
+var headerContentLengthKey = "Content-Length"
+var headerVaryKey = "Vary"
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter
@@ -137,11 +137,11 @@ type EncodingResponseWriter interface {
 }
 
 type encodingResponseWriter struct {
-	wrappedWriter   http.ResponseWriter
-	encodingWriter  io.Writer
+	wrappedWriter  http.ResponseWriter
+	encodingWriter io.Writer
 }
 
-func (ew *encodingResponseWriter) Header() (http.Header) {
+func (ew *encodingResponseWriter) Header() http.Header {
 	return ew.wrappedWriter.Header()
 }
 
@@ -174,7 +174,7 @@ func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.Compr
 		encodingWriter = w
 	}
 	return &encodingResponseWriter{
-		wrappedWriter: w,
+		wrappedWriter:  w,
 		encodingWriter: encodingWriter,
 	}, nil
 }

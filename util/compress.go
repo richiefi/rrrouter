@@ -10,21 +10,21 @@ import (
 type CompressionType int
 
 const (
-	CompressionTypeNone    CompressionType = 0
-	CompressionTypeGzip    CompressionType = 1
-	CompressionTypeBrotli  CompressionType = 2
+	CompressionTypeNone   CompressionType = 0
+	CompressionTypeGzip   CompressionType = 1
+	CompressionTypeBrotli CompressionType = 2
 )
 
 func NewGzipDecodingReader(body io.ReadCloser) (io.ReadCloser, error) {
 	gzReader, err := gzip.NewReader(body)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 	return gzReader, nil
 }
 
 func NewBrotliEncodingWriter(w io.Writer, compressionLevel int) io.Writer {
-	if (compressionLevel < 0 || compressionLevel > 11) {
+	if compressionLevel < 0 || compressionLevel > 11 {
 		compressionLevel = 0
 	}
 
@@ -35,12 +35,12 @@ func NewBrotliEncodingWriter(w io.Writer, compressionLevel int) io.Writer {
 }
 
 func NewGzipEncodingWriter(w io.Writer, compressionLevel int) (io.Writer, error) {
-	if (compressionLevel < gzip.BestSpeed || compressionLevel > gzip.BestCompression) {
+	if compressionLevel < gzip.BestSpeed || compressionLevel > gzip.BestCompression {
 		compressionLevel = gzip.DefaultCompression
 	}
 
 	w, err := gzip.NewWriterLevel(w, compressionLevel)
-	if (err != nil) {
+	if err != nil {
 		return nil, err
 	}
 	return w, nil
@@ -85,6 +85,7 @@ func GetAddCompressionType(acceptEncoding string, contentEncoding string, conten
 }
 
 type acceptsEncoding int
+
 const (
 	acceptsOther  acceptsEncoding = 0
 	acceptsGzip   acceptsEncoding = 1
@@ -108,4 +109,3 @@ func fallbackCompressionWithDefault(contentEncoding string, contentType string, 
 
 	return CompressionTypeNone
 }
-

@@ -44,12 +44,12 @@ func NewRule(pattern, destination string, internal bool, methods map[string]bool
 	repattern := strings.Join(finalParts, "")
 	r := regexp.MustCompile(repattern)
 	rule := &Rule{
-		pattern:  pattern,
-		re:       r,
-		dest:     destination,
-		internal: internal,
-		methods:  methods,
-		ruleType: ruleType,
+		pattern:        pattern,
+		re:             r,
+		dest:           destination,
+		internal:       internal,
+		methods:        methods,
+		ruleType:       ruleType,
 		addCompression: addCompression,
 	}
 
