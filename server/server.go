@@ -65,8 +65,8 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 		var reader io.ReadCloser
 		var writer http.ResponseWriter
-		if reqres.AddCompressionType != util.CompressionTypeNone {
-			if reqres.Response.Header.Get(headerContentEncodingKey) == "gzip" {
+		if reqres.AddRemoveCompressionType.Add != util.CompressionTypeNone {
+			if reqres.AddRemoveCompressionType.Remove == util.CompressionTypeGzip {
 				reader, err = util.NewGzipDecodingReader(reqres.Response.Body)
 				if err != nil {
 					writeError(w, err)
@@ -76,13 +76,13 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				reader = reqres.Response.Body
 			}
 
-			writer, err = NewEncodingResponseWriter(w, reqres.AddCompressionType, conf)
+			writer, err = NewEncodingResponseWriter(w, reqres.AddRemoveCompressionType.Add, conf)
 			if err != nil {
 				writeError(w, err)
 				return
 			}
 			header.Del(headerContentLengthKey)
-			header.Set(headerContentEncodingKey, util.ContentEncodingFromCompressionType(reqres.AddCompressionType))
+			header.Set(headerContentEncodingKey, util.ContentEncodingFromCompressionType(reqres.AddRemoveCompressionType.Add))
 			vary := header.Get(headerVaryKey)
 			if len(vary) > 0 && !strings.Contains(strings.ToLower(vary), strings.ToLower(headerAcceptEncodingKey)) {
 				vary = vary + ", " + headerAcceptEncodingKey

@@ -25,8 +25,8 @@ const (
 )
 
 type requestResult struct {
-	Response           *http.Response
-	AddCompressionType util.CompressionType
+	Response                 *http.Response
+	AddRemoveCompressionType util.AddRemoveCompression
 }
 
 // Router is the meat of rrrouter
@@ -154,14 +154,14 @@ func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
 		return nil, usererror.BuildError(usererror.Fields{"URL": req.URL.String()}).CreateError(http.StatusNotFound, "No destination found for request target")
 	}
 
-	addCompressionType := util.CompressionTypeNone
-	if requestsResult.addCompression {
-		addCompressionType = util.GetAddCompressionType(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
+	addRemoveCompression := util.AddRemoveCompression{Add: util.CompressionTypeNone, Remove: util.CompressionTypeNone}
+	if requestsResult.addRemoveCompression {
+		addRemoveCompression = util.GetAddRemoveCompressionType(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
 	}
 
 	return &requestResult{
-		Response:           mainResp,
-		AddCompressionType: addCompressionType,
+		Response:                 mainResp,
+		AddRemoveCompressionType: addRemoveCompression,
 	}, nil
 }
 
@@ -252,9 +252,9 @@ func retryable(req *http.Request) bool {
 }
 
 type createRequestsResult struct {
-	mainRequest    *http.Request
-	copyRequest    *http.Request
-	addCompression bool
+	mainRequest          *http.Request
+	copyRequest          *http.Request
+	addRemoveCompression bool
 }
 
 func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResult, error) {
@@ -267,9 +267,9 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 	}
 	var mainRequest *http.Request
 	logctx.WithFields(apexlog.Fields{"urlMatch.rule": urlMatch.rule, "urlMatch.copyURL": urlMatch.copyURL}).Debug("Got url match")
-	addCompression := false
+	addRemoveCompression := false
 	if urlMatch.rule != nil {
-		addCompression = urlMatch.rule.addCompression
+		addRemoveCompression = urlMatch.rule.addRemoveCompression
 		mainRequest, err = r.createProxyRequest(req, urlMatch.rule.internal, urlMatch.url)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating mainRequest")
@@ -285,9 +285,9 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 		}
 	}
 	return &createRequestsResult{
-		mainRequest:    mainRequest,
-		copyRequest:    copyRequest,
-		addCompression: addCompression,
+		mainRequest:          mainRequest,
+		copyRequest:          copyRequest,
+		addRemoveCompression: addRemoveCompression,
 	}, err
 }
 

@@ -36,12 +36,12 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Methods        []string `json:"methods"`
-	Pattern        string   `json:"pattern"`
-	Destination    string   `json:"destination"`
-	Internal       bool     `json:"internal"`
-	Type           *string  `json:"type"`
-	AddCompression bool     `json:"addCompression"`
+	Methods              []string `json:"methods"`
+	Pattern              string   `json:"pattern"`
+	Destination          string   `json:"destination"`
+	Internal             bool     `json:"internal"`
+	Type                 *string  `json:"type"`
+	AddRemoveCompression bool     `json:"addRemoveCompression"`
 }
 
 type rulesConfig struct {
@@ -76,7 +76,7 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 			}
 		}
 		addCompression := false
-		if rsrc.AddCompression {
+		if rsrc.AddRemoveCompression {
 			addCompression = true
 		}
 		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, addCompression)

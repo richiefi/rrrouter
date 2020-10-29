@@ -7,6 +7,11 @@ import (
 	"strings"
 )
 
+type AddRemoveCompression struct {
+	Add    CompressionType
+	Remove CompressionType
+}
+
 type CompressionType int
 
 const (
@@ -57,23 +62,23 @@ func ContentEncodingFromCompressionType(compressionType CompressionType) string 
 	}
 }
 
-func GetAddCompressionType(acceptEncoding string, contentEncoding string, contentType string) CompressionType {
+func GetAddRemoveCompressionType(acceptEncoding string, contentEncoding string, contentType string) AddRemoveCompression {
 	switch acceptsEncodingFromString(acceptEncoding) {
 	case acceptsBrotli:
 		switch contentEncoding {
 		case "br":
-			return CompressionTypeNone
+			return AddRemoveCompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
 		case "gzip":
-			return CompressionTypeBrotli
+			return AddRemoveCompression{Add: CompressionTypeBrotli, Remove: CompressionTypeGzip}
 		default:
 			return fallbackCompressionWithDefault(contentEncoding, contentType, CompressionTypeBrotli)
 		}
 	case acceptsGzip:
 		switch contentEncoding {
 		case "gzip":
-			return CompressionTypeNone
+			return AddRemoveCompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
 		case "br":
-			return CompressionTypeBrotli
+			return AddRemoveCompression{Add: CompressionTypeBrotli, Remove: CompressionTypeNone}
 		default:
 			return fallbackCompressionWithDefault(contentEncoding, contentType, CompressionTypeGzip)
 		}
@@ -102,10 +107,10 @@ func acceptsEncodingFromString(s string) acceptsEncoding {
 	return acceptsOther
 }
 
-func fallbackCompressionWithDefault(contentEncoding string, contentType string, def CompressionType) CompressionType {
+func fallbackCompressionWithDefault(contentEncoding string, contentType string, def CompressionType) AddRemoveCompression {
 	if (contentEncoding == "" || contentEncoding == "identity") && (contentType == "application/json" || strings.HasPrefix(contentType, "text/")) {
-		return def
+		return AddRemoveCompression{Add: def, Remove: CompressionTypeNone}
 	}
 
-	return CompressionTypeNone
+	return AddRemoveCompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
 }

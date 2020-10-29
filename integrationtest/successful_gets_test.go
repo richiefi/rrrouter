@@ -39,10 +39,10 @@ func TestConnection_client_requests_brotli_but_compression_override_is_not_set_a
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:        "127.0.0.1/t/*",
-			Destination:    fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:       false,
-			AddCompression: false,
+			Pattern:              "127.0.0.1/t/*",
+			Destination:          fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:             false,
+			AddRemoveCompression: false,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
@@ -80,10 +80,10 @@ func TestConnection_client_requests_brotli_from_origin_gets_brotli(t *testing.T)
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:        "127.0.0.1/t/*",
-			Destination:    fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:       false,
-			AddCompression: true,
+			Pattern:              "127.0.0.1/t/*",
+			Destination:          fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:             false,
+			AddRemoveCompression: true,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
@@ -122,10 +122,10 @@ func TestConnection_client_requests_brotli_from_gzip_origin_gets_brotli(t *testi
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:        "127.0.0.1/t/*",
-			Destination:    fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:       false,
-			AddCompression: true,
+			Pattern:              "127.0.0.1/t/*",
+			Destination:          fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:             false,
+			AddRemoveCompression: true,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
@@ -165,10 +165,10 @@ func TestConnection_client_requests_gzip_from_gzip_origin_gets_gzip(t *testing.T
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:        "127.0.0.1/t/*",
-			Destination:    fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:       false,
-			AddCompression: true,
+			Pattern:              "127.0.0.1/t/*",
+			Destination:          fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:             false,
+			AddRemoveCompression: true,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
@@ -215,10 +215,10 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:        "127.0.0.1/t/*",
-			Destination:    fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:       false,
-			AddCompression: true,
+			Pattern:              "127.0.0.1/t/*",
+			Destination:          fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:             false,
+			AddRemoveCompression: true,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
