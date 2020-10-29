@@ -22,7 +22,7 @@ import (
 func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
 	smux := http.NewServeMux()
 	ConfigureServeMux(smux, conf, router, logger)
-	logger.WithField("port", conf.Port).Debug("Starting listener")
+	logger.WithFields(apexlog.Fields{"port": conf.Port, "br level": conf.BrotliLevel, "gzip level": conf.GZipLevel}).Debug("Starting listener")
 	err := http.ListenAndServe(":"+strconv.Itoa(conf.Port), smux)
 	if err != nil {
 		logger.WithField("error", err).Fatal("Error starting HTTP server")
@@ -35,10 +35,10 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 	s.HandleFunc("/__RRROUTER/health", func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprintf(w, "OK")
 	})
-	s.HandleFunc("/", requestHandler(router, logger))
+	s.HandleFunc("/", requestHandler(router, logger, conf))
 }
 
-func requestHandler(router proxy.Router, logger *apexlog.Logger) func(http.ResponseWriter, *http.Request) {
+func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config) func(http.ResponseWriter, *http.Request) {
 	return func(w http.ResponseWriter, r *http.Request) {
 		logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.requestHandler"})
 		logctx.Debug("Got request")
@@ -76,7 +76,11 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger) func(http.Respo
 				reader = reqres.Response.Body
 			}
 
-			writer = NewEncodingResponseWriter(w, reqres.AddCompressionType)
+			writer, err = NewEncodingResponseWriter(w, reqres.AddCompressionType, conf)
+			if err != nil {
+				writeError(w, err)
+				return
+			}
 			header.Del(headerContentLengthKey)
 			header.Set(headerContentEncodingKey, util.ContentEncodingFromCompressionType(reqres.AddCompressionType))
 			vary := header.Get(headerVaryKey)
@@ -152,14 +156,18 @@ func (ew *encodingResponseWriter) Flush() {
 	ew.wrappedWriter.(http.Flusher).Flush()
 }
 
-func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType) EncodingResponseWriter {
+func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType, conf *config.Config) (EncodingResponseWriter, error) {
 	var encodingWriter io.Writer
 	switch compressionType {
 	case util.CompressionTypeBrotli:
-		encodingWriter = util.NewBrotliEncodingWriter(w)
+		encodingWriter = util.NewBrotliEncodingWriter(w, conf.BrotliLevel)
 		break
 	case util.CompressionTypeGzip:
-		encodingWriter = util.NewGzipEncodingWriter(w)
+		var err error
+		encodingWriter, err = util.NewGzipEncodingWriter(w, conf.GZipLevel)
+		if err != nil {
+			return nil, err
+		}
 		break
 	default:
 		encodingWriter = w
@@ -167,7 +175,7 @@ func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.Compr
 	return &encodingResponseWriter{
 		wrappedWriter: w,
 		encodingWriter: encodingWriter,
-	}
+	}, nil
 }
 
 func writeError(w http.ResponseWriter, err error) {

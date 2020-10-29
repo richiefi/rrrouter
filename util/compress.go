@@ -23,15 +23,27 @@ func NewGzipDecodingReader(body io.ReadCloser) (io.ReadCloser, error) {
 	return gzReader, nil
 }
 
-func NewBrotliEncodingWriter(w io.Writer) io.Writer {
+func NewBrotliEncodingWriter(w io.Writer, compressionLevel int) io.Writer {
+	if (compressionLevel < 0 || compressionLevel > 11) {
+		compressionLevel = 0
+	}
+
 	return enc.NewBrotliWriter(w, &enc.BrotliWriterOptions{
-		Quality: 0,
+		Quality: compressionLevel,
 		LGWin:   0,
 	})
 }
 
-func NewGzipEncodingWriter(w io.Writer) io.Writer {
-	return gzip.NewWriter(w)
+func NewGzipEncodingWriter(w io.Writer, compressionLevel int) (io.Writer, error) {
+	if (compressionLevel < gzip.BestSpeed || compressionLevel > gzip.BestCompression) {
+		compressionLevel = gzip.DefaultCompression
+	}
+
+	w, err := gzip.NewWriterLevel(w, compressionLevel)
+	if (err != nil) {
+		return nil, err
+	}
+	return w, nil
 }
 
 func ContentEncodingFromCompressionType(compressionType CompressionType) string {
