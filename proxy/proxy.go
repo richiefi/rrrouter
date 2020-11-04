@@ -25,7 +25,8 @@ const (
 )
 
 type requestResult struct {
-	Response *http.Response
+	Response      *http.Response
+	Recompression util.Recompression
 }
 
 // Router is the meat of rrrouter
@@ -153,8 +154,14 @@ func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
 		return nil, usererror.BuildError(usererror.Fields{"URL": req.URL.String()}).CreateError(http.StatusNotFound, "No destination found for request target")
 	}
 
+	recompression := util.Recompression{Add: util.CompressionTypeNone, Remove: util.CompressionTypeNone}
+	if requestsResult.recompression {
+		recompression = util.GetRecompression(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
+	}
+
 	return &requestResult{
-		Response: mainResp,
+		Response:      mainResp,
+		Recompression: recompression,
 	}, nil
 }
 
@@ -245,8 +252,9 @@ func retryable(req *http.Request) bool {
 }
 
 type createRequestsResult struct {
-	mainRequest *http.Request
-	copyRequest *http.Request
+	mainRequest   *http.Request
+	copyRequest   *http.Request
+	recompression bool
 }
 
 func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResult, error) {
@@ -259,7 +267,9 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 	}
 	var mainRequest *http.Request
 	logctx.WithFields(apexlog.Fields{"urlMatch.rule": urlMatch.rule, "urlMatch.copyURL": urlMatch.copyURL}).Debug("Got url match")
+	recompression := false
 	if urlMatch.rule != nil {
+		recompression = urlMatch.rule.recompression
 		mainRequest, err = r.createProxyRequest(req, urlMatch.rule.internal, urlMatch.url)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating mainRequest")
@@ -275,8 +285,9 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 		}
 	}
 	return &createRequestsResult{
-		mainRequest: mainRequest,
-		copyRequest: copyRequest,
+		mainRequest:   mainRequest,
+		copyRequest:   copyRequest,
+		recompression: recompression,
 	}, err
 }
 

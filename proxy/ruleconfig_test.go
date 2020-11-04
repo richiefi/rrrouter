@@ -28,7 +28,7 @@ func TestConfigParse_error_cases(t *testing.T) {
 func TestConfigParse_success(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*", 
+            "pattern": "api.example.com/foo/*",  
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         },
         {

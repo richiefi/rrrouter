@@ -36,11 +36,12 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Methods     []string `json:"methods"`
-	Pattern     string   `json:"pattern"`
-	Destination string   `json:"destination"`
-	Internal    bool     `json:"internal"`
-	Type        *string  `json:"type"`
+	Methods       []string `json:"methods"`
+	Pattern       string   `json:"pattern"`
+	Destination   string   `json:"destination"`
+	Internal      bool     `json:"internal"`
+	Type          *string  `json:"type"`
+	Recompression bool     `json:"recompression"`
 }
 
 type rulesConfig struct {
@@ -74,7 +75,11 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 				return nil, fmt.Errorf("unrecognized rule type %q", ruleType)
 			}
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType)
+		recompression := false
+		if rsrc.Recompression {
+			recompression = true
+		}
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, recompression)
 		if err != nil {
 			return nil, err
 		}
