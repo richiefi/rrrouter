@@ -82,6 +82,8 @@ func GetRecompression(acceptEncoding string, contentEncoding string, contentType
 		default:
 			return fallbackCompressionWithDefault(contentEncoding, contentType, CompressionTypeGzip)
 		}
+	case acceptsBrokenClient:
+		return Recompression{Add: CompressionTypeNone, Remove: CompressionTypeNone} // Handle this differently from default, as default might change. Broken client does not change.
 	case acceptsOther:
 		break
 	}
@@ -92,13 +94,16 @@ func GetRecompression(acceptEncoding string, contentEncoding string, contentType
 type acceptsEncoding int
 
 const (
-	acceptsOther  acceptsEncoding = 0
-	acceptsGzip   acceptsEncoding = 1
-	acceptsBrotli acceptsEncoding = 2
+	acceptsOther        acceptsEncoding = 0
+	acceptsGzip         acceptsEncoding = 1
+	acceptsBrotli       acceptsEncoding = 2
+	acceptsBrokenClient acceptsEncoding = 3
 )
 
 func acceptsEncodingFromString(s string) acceptsEncoding {
-	if strings.Contains(s, "br") {
+	if strings.Contains(s, ";") {
+		return acceptsBrokenClient
+	} else if strings.Contains(s, "br") {
 		return acceptsBrotli
 	} else if strings.Contains(s, "gzip") {
 		return acceptsGzip

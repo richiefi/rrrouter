@@ -269,6 +269,48 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 	require.Equal(t, "", resp.Header.Get("Vary"))
 }
 
+func TestConnection_broken_client_requests_gzip_deflate_from_plaintext_whitelisted_content_type_origin_gets_plaintext(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "gzip; deflate", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		w.Header().Set("Content-Type", "application/json")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(plainBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:       "127.0.0.1/t/*",
+			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:      false,
+			Recompression: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	// JSON, plain
+	header := http.Header{}
+	header.Set("Accept-Encoding", "gzip; deflate")
+	resp := sh.getURLQuery("/t/json", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(plainBody), body)
+	require.Equal(t, "", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "", resp.Header.Get("Vary"))
+}
+
 func TestConnection_internal_headers_added(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
