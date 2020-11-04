@@ -7,7 +7,7 @@ import (
 	"strings"
 )
 
-type AddRemoveCompression struct {
+type Recompression struct {
 	Add    CompressionType
 	Remove CompressionType
 }
@@ -62,23 +62,23 @@ func ContentEncodingFromCompressionType(compressionType CompressionType) string 
 	}
 }
 
-func GetAddRemoveCompressionType(acceptEncoding string, contentEncoding string, contentType string) AddRemoveCompression {
+func GetRecompression(acceptEncoding string, contentEncoding string, contentType string) Recompression {
 	switch acceptsEncodingFromString(acceptEncoding) {
 	case acceptsBrotli:
 		switch contentEncoding {
 		case "br":
-			return AddRemoveCompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
+			return Recompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
 		case "gzip":
-			return AddRemoveCompression{Add: CompressionTypeBrotli, Remove: CompressionTypeGzip}
+			return Recompression{Add: CompressionTypeBrotli, Remove: CompressionTypeGzip}
 		default:
 			return fallbackCompressionWithDefault(contentEncoding, contentType, CompressionTypeBrotli)
 		}
 	case acceptsGzip:
 		switch contentEncoding {
 		case "gzip":
-			return AddRemoveCompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
+			return Recompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
 		case "br":
-			return AddRemoveCompression{Add: CompressionTypeBrotli, Remove: CompressionTypeNone}
+			return Recompression{Add: CompressionTypeBrotli, Remove: CompressionTypeNone}
 		default:
 			return fallbackCompressionWithDefault(contentEncoding, contentType, CompressionTypeGzip)
 		}
@@ -107,10 +107,10 @@ func acceptsEncodingFromString(s string) acceptsEncoding {
 	return acceptsOther
 }
 
-func fallbackCompressionWithDefault(contentEncoding string, contentType string, def CompressionType) AddRemoveCompression {
+func fallbackCompressionWithDefault(contentEncoding string, contentType string, def CompressionType) Recompression {
 	if (contentEncoding == "" || contentEncoding == "identity") && (contentType == "application/json" || strings.HasPrefix(contentType, "text/")) {
-		return AddRemoveCompression{Add: def, Remove: CompressionTypeNone}
+		return Recompression{Add: def, Remove: CompressionTypeNone}
 	}
 
-	return AddRemoveCompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
+	return Recompression{Add: CompressionTypeNone, Remove: CompressionTypeNone}
 }

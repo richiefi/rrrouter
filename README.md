@@ -134,7 +134,7 @@ Rules without this field default to not performing any compression.
 rules:
     - destination: https://richie-appconfig.herokuapp.com/v1/$1
       pattern: app.example.com/config/v1/*
-      addRemoveCompression: true
+      recompression: true
 ```
 
 ## Traffic Copying
