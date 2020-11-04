@@ -126,9 +126,11 @@ Additionally, with a client request with `Accept-Encoding: br`, origin being `Co
 
 Only plain text types `application/json` and `text/<anything>`, when `Content-Encoding` is missing or `identity` will be compressed with the desired `Accept-Encoding`.
 
+Currently, if a request does not include either `br` or `gzip` in the accepted encodings, no encoding or decoding actions are performed on the origin response.
+
 Compression level can be specified with environment variables BROTLI_LEVEL (0-11, defaults to 0) and GZIP_LEVEL (1-9, defaults to 1)
 
-Rules without this field default to not performing any compression.
+Rules without this field default to not performing any compression:
 
 ```yaml
 rules:
