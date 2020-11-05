@@ -65,7 +65,9 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 		var reader io.ReadCloser
 		var writer http.ResponseWriter
+		doCloseWriter := false
 		if reqres.Recompression.Add != util.CompressionTypeNone {
+			doCloseWriter = true
 			if reqres.Recompression.Remove == util.CompressionTypeGzip {
 				reader, err = util.NewGzipDecodingReader(reqres.Response.Body)
 				if err != nil {
@@ -120,6 +122,12 @@ func requestHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			keepOpen := step(writer)
 			writer.(http.Flusher).Flush()
 			if !keepOpen {
+				if doCloseWriter {
+					err := writer.(io.Closer).Close()
+					if err != nil {
+						logctx.WithField("error", err).Info("Closing writer caused an error")
+					}
+				}
 				return
 			}
 		}
@@ -155,6 +163,15 @@ func (ew *encodingResponseWriter) WriteHeader(statusCode int) {
 
 func (ew *encodingResponseWriter) Flush() {
 	ew.wrappedWriter.(http.Flusher).Flush()
+}
+
+func (ew *encodingResponseWriter) Close() error {
+	err := ew.encodingWriter.(io.Closer).Close()
+	if err != nil {
+		return err
+	}
+
+	return nil
 }
 
 func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType, conf *config.Config) (EncodingResponseWriter, error) {
