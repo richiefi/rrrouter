@@ -269,7 +269,7 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 	require.Equal(t, "", resp.Header.Get("Vary"))
 }
 
-func TestConnection_broken_client_requests_gzip_deflate_from_plaintext_whitelisted_content_type_origin_gets_plaintext(t *testing.T) {
+func TestConnection_broken_client_requests_gzip_identity_from_plaintext_whitelisted_content_type_origin_gets_plaintext(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
 		Port:           0,
@@ -279,11 +279,12 @@ func TestConnection_broken_client_requests_gzip_deflate_from_plaintext_whitelist
 	requestReceived := false
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		t.Log("Received request on the target server", r)
-		require.Equal(t, "gzip; deflate", r.Header.Get("Accept-Encoding"))
+		require.Equal(t, "gzip; identity", r.Header.Get("Accept-Encoding"))
 		requestReceived = true
 		w.Header().Set("Content-Type", "application/json")
+		w.Header().Set("Content-Encoding", "gzip")
 		w.WriteHeader(http.StatusOK)
-		_, _ = w.Write([]byte(plainBody))
+		_, _ = w.Write([]byte(gzBody))
 	}))
 	defer targetServer.Close()
 
@@ -302,7 +303,7 @@ func TestConnection_broken_client_requests_gzip_deflate_from_plaintext_whitelist
 
 	// JSON, plain
 	header := http.Header{}
-	header.Set("Accept-Encoding", "gzip; deflate")
+	header.Set("Accept-Encoding", "gzip; identity")
 	resp := sh.getURLQuery("/t/json", listener.URL, url.Values{}, header)
 	require.True(t, requestReceived)
 	body := sh.readBody(resp)
