@@ -83,6 +83,9 @@ func GetRecompression(acceptEncoding string, contentEncoding string, contentType
 			return fallbackCompressionWithDefault(contentEncoding, contentType, CompressionTypeGzip)
 		}
 	case acceptsBrokenClient:
+		if contentEncoding == "gzip" {
+			return Recompression{Add: CompressionTypeNone, Remove: CompressionTypeGzip}
+		}
 		return Recompression{Add: CompressionTypeNone, Remove: CompressionTypeNone} // Handle this differently from default, as default might change. Broken client does not change.
 	case acceptsOther:
 		break
