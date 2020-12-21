@@ -11,4 +11,6 @@ type Config struct {
 	RetryTimes     []int    `help:"List of integers representing milliseconds to sleep if connection to target fails." default:"10,50,100,200,400" env:"RETRY_TIMES"`
 	GZipLevel      int      `help:"Gzip compression level: 1-9." default:"1" env:"GZIP_LEVEL"`
 	BrotliLevel    int      `help:"Brotli compression level: 0-11." default:"0" env:"BROTLI_LEVEL"`
+	TLSCertPath    string   `kong:"help='Path to TLS certificate file',env='TLS_CERT_PATH',optional"`
+	TLSKeyPath     string   `kong:"help='Path to private key file for the TLS certificate',env='TLS_KEY_PATH',optional"`
 }
