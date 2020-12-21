@@ -1,5 +1,7 @@
 package config
 
+import "errors"
+
 // Config is the rrrouter server mode configuration structure
 type Config struct {
 	MappingURL     string   `help:"URL to remotely stored mapping" group:"mappingsource" xor:"mappingsource" env:"MAPPING_URL"`
@@ -13,4 +15,16 @@ type Config struct {
 	BrotliLevel    int      `help:"Brotli compression level: 0-11." default:"0" env:"BROTLI_LEVEL"`
 	TLSCertPath    string   `kong:"help='Path to TLS certificate file',env='TLS_CERT_PATH',optional"`
 	TLSKeyPath     string   `kong:"help='Path to private key file for the TLS certificate',env='TLS_KEY_PATH',optional"`
+}
+
+func (c *Config) TLSConfigIsValid() (bool, error) {
+	if len(c.TLSCertPath) > 0 && len(c.TLSKeyPath) > 0 {
+		return true, nil
+	} else if len(c.TLSCertPath) > 0 && len(c.TLSKeyPath) == 0 {
+		return false, errors.New("TLS certificate path is configured but path to key is missing")
+	} else if len(c.TLSKeyPath) > 0 && len(c.TLSCertPath) == 0 {
+		return false, errors.New("TLS key path is configured but path to certificate is missing")
+	}
+
+	return false, nil
 }
