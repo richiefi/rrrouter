@@ -23,7 +23,16 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
 	smux := http.NewServeMux()
 	ConfigureServeMux(smux, conf, router, logger)
 	logger.WithFields(apexlog.Fields{"port": conf.Port, "br level": conf.BrotliLevel, "gzip level": conf.GZipLevel}).Debug("Starting listener")
-	err := http.ListenAndServe(":"+strconv.Itoa(conf.Port), smux)
+	tlsConfigValid, err := conf.TLSConfigIsValid()
+	if err != nil {
+		logger.WithField("error", err.Error()).Fatal("Error starting HTTP server")
+		return
+	}
+	if tlsConfigValid {
+		err = http.ListenAndServeTLS(":"+strconv.Itoa(conf.Port), conf.TLSCertPath, conf.TLSKeyPath, smux)
+	} else if len(conf.TLSCertPath) > 0 && len(conf.TLSKeyPath) == 0 {
+		err = http.ListenAndServe(":"+strconv.Itoa(conf.Port), smux)
+	}
 	if err != nil {
 		logger.WithField("error", err).Fatal("Error starting HTTP server")
 	}
