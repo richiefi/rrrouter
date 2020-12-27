@@ -30,7 +30,7 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
 	}
 	if tlsConfigValid {
 		err = http.ListenAndServeTLS(":"+strconv.Itoa(conf.Port), conf.TLSCertPath, conf.TLSKeyPath, smux)
-	} else if len(conf.TLSCertPath) > 0 && len(conf.TLSKeyPath) == 0 {
+	} else {
 		err = http.ListenAndServe(":"+strconv.Itoa(conf.Port), smux)
 	}
 	if err != nil {
