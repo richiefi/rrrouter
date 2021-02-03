@@ -632,3 +632,136 @@ func TestConnection_response_body_passed_through_to_the_client(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, body, []byte("Hello"))
 }
+
+func TestConnection_host_header_behaviors(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:       0,
+		MappingURL: "",
+	}
+
+	// HostHeaderDefault
+
+	receivedRequest := false
+	originHostHeader := ""
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		receivedRequest = true
+		originHostHeader = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			HostHeader:  "",
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	sh.getURL("/t/asdf", listener.URL)
+	require.True(t, receivedRequest)
+	sUrl, _ := url.Parse(targetServer.URL)
+	require.Equal(t, sUrl.Host, originHostHeader)
+	targetServer.Close()
+
+	// HostHeaderClient
+
+	receivedRequest = false
+	originHostHeader = ""
+	targetServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		receivedRequest = true
+		originHostHeader = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rules, err = proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "example.com/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			HostHeader:  "client",
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router = proxy.NewRouter(rules, sh.Logger, conf)
+	listener = sh.runProxy(router)
+	defer listener.Close()
+
+	hdrs := http.Header{}
+	hdrs.Set("Host", "example.com")
+	sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, hdrs)
+	require.True(t, receivedRequest)
+	require.Equal(t, "example.com", originHostHeader)
+	targetServer.Close()
+
+	// HostHeaderTarget
+
+	receivedRequest = false
+	originHostHeader = ""
+	targetServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		receivedRequest = true
+		originHostHeader = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rules, err = proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "example.com/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			HostHeader:  "target",
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router = proxy.NewRouter(rules, sh.Logger, conf)
+	listener = sh.runProxy(router)
+	defer listener.Close()
+
+	hdrs = http.Header{}
+	hdrs.Set("Host", "example.com")
+	sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, hdrs)
+	require.True(t, receivedRequest)
+	sUrl, _ = url.Parse(targetServer.URL)
+	require.Equal(t, sUrl.Host, originHostHeader)
+	targetServer.Close()
+
+	// HostHeaderOverride
+
+	receivedRequest = false
+	originHostHeader = ""
+	targetServer = httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		receivedRequest = true
+		originHostHeader = r.Host
+		w.WriteHeader(http.StatusOK)
+	}))
+
+	rules, err = proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "example.com/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			HostHeader:  "example.com:3800",
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router = proxy.NewRouter(rules, sh.Logger, conf)
+	listener = sh.runProxy(router)
+	defer listener.Close()
+
+	hdrs = http.Header{}
+	hdrs.Set("Host", "example.com:3800")
+	sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, hdrs)
+	require.True(t, receivedRequest)
+	require.Equal(t, "example.com:3800", originHostHeader)
+	targetServer.Close()
+
+}

@@ -270,7 +270,7 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 	recompression := false
 	if urlMatch.rule != nil {
 		recompression = urlMatch.rule.recompression
-		mainRequest, err = r.createProxyRequest(req, urlMatch.rule.internal, urlMatch.url)
+		mainRequest, err = r.createProxyRequest(req, urlMatch.rule.internal, urlMatch.rule.hostHeader, urlMatch.url)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating mainRequest")
 			return nil, err
@@ -278,7 +278,7 @@ func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResul
 	}
 	var copyRequest *http.Request
 	if urlMatch.copyURL != nil {
-		copyRequest, err = r.createProxyRequest(req, urlMatch.copyRule.internal, urlMatch.copyURL)
+		copyRequest, err = r.createProxyRequest(req, urlMatch.copyRule.internal, urlMatch.copyRule.hostHeader, urlMatch.copyURL)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating copyRequest")
 			return nil, err
@@ -309,7 +309,7 @@ func filterHeader(originalHeader http.Header, filteredHeaderNames []string) http
 	return newHeader
 }
 
-func (r *router) createProxyRequest(req *http.Request, internal bool, url *url.URL) (*http.Request, error) {
+func (r *router) createProxyRequest(req *http.Request, internal bool, hostHeader HostHeader, url *url.URL) (*http.Request, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createProxyRequest", "url": url})
 	logctx.Debug("Constructing outgoing request")
 	preq, err := http.NewRequestWithContext(req.Context(), req.Method, url.String(), req.Body)
@@ -332,6 +332,14 @@ func (r *router) createProxyRequest(req *http.Request, internal bool, url *url.U
 	}
 
 	preq.Header = filterHeader(req.Header, nonForwardedHeaderNames)
+	switch hostHeader.Behavior {
+	case HostHeaderDefault, HostHeaderTarget:
+		break
+	case HostHeaderClient:
+		preq.Host = req.Host
+	case HostHeaderOverride:
+		preq.Host = hostHeader.Override
+	}
 
 	readIP := func() string { return util.RequestIP(req) }
 	if r.config.RoutingSecrets == nil {
