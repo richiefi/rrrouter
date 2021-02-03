@@ -155,7 +155,7 @@ func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
 	}
 
 	recompression := util.Recompression{Add: util.CompressionTypeNone, Remove: util.CompressionTypeNone}
-	if requestsResult.recompression {
+	if requestsResult.recompression && canTransform(mainResp.Header.Get("cache-control")) {
 		recompression = util.GetRecompression(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
 	}
 
@@ -165,6 +165,13 @@ func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
 	}, nil
 }
 
+func canTransform(cc string) bool {
+	if len(cc) > 0 {
+		return strings.Index(strings.ToLower(cc), "no-transform") == -1
+	}
+
+	return true
+}
 type dummyReadCloser struct {
 	io.Reader
 }
