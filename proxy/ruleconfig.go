@@ -41,6 +41,7 @@ type RuleSource struct {
 	Destination   string   `json:"destination"`
 	Internal      bool     `json:"internal"`
 	Type          *string  `json:"type"`
+	HostHeader    string   `json:"hostheader"`
 	Recompression bool     `json:"recompression"`
 }
 
@@ -75,11 +76,22 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 				return nil, fmt.Errorf("unrecognized rule type %q", ruleType)
 			}
 		}
+		hostHeader := HostHeader{Behavior: HostHeaderDefault}
+		switch rsrc.HostHeader {
+		case "":
+			hostHeader = HostHeader{Behavior: HostHeaderDefault}
+		case "client":
+			hostHeader = HostHeader{Behavior: HostHeaderClient}
+		case "target":
+			hostHeader = HostHeader{Behavior: HostHeaderTarget}
+		default:
+			hostHeader = HostHeader{Behavior: HostHeaderOverride, Override: rsrc.HostHeader}
+		}
 		recompression := false
 		if rsrc.Recompression {
 			recompression = true
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, recompression)
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression)
 		if err != nil {
 			return nil, err
 		}
