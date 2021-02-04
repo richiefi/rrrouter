@@ -73,7 +73,7 @@ func TestConfigParse_host_headers(t *testing.T) {
         {
             "pattern": "api.example.com/bar/*", 
             "destination": "http://localhost:1000/v1/$1",
-			"hostheader": "target"
+			"hostheader": "destination"
         }
         ]
     }`
@@ -84,7 +84,7 @@ func TestConfigParse_host_headers(t *testing.T) {
 	require.Equal(t, HostHeaderClient, rules.rules[1].hostHeader.Behavior)
 	require.Equal(t, HostHeaderOverride, rules.rules[2].hostHeader.Behavior)
 	require.Equal(t, "example.com:3800", rules.rules[2].hostHeader.Override)
-	require.Equal(t, HostHeaderTarget, rules.rules[3].hostHeader.Behavior)
+	require.Equal(t, HostHeaderDestination, rules.rules[3].hostHeader.Behavior)
 
 }
 

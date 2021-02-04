@@ -333,7 +333,7 @@ func (r *router) createProxyRequest(req *http.Request, internal bool, hostHeader
 
 	preq.Header = filterHeader(req.Header, nonForwardedHeaderNames)
 	switch hostHeader.Behavior {
-	case HostHeaderDefault, HostHeaderTarget:
+	case HostHeaderDefault, HostHeaderDestination:
 		break
 	case HostHeaderClient:
 		preq.Host = req.Host

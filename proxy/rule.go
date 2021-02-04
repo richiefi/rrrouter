@@ -31,7 +31,7 @@ const (
 	HostHeaderDefault HostHeaderBehavior = iota
 	HostHeaderClient
 	HostHeaderOverride
-	HostHeaderTarget
+	HostHeaderDestination
 )
 
 // NewRule builds a new Rule

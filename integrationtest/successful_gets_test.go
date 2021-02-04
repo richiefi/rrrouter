@@ -701,7 +701,7 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 	require.Equal(t, "example.com", originHostHeader)
 	targetServer.Close()
 
-	// HostHeaderTarget
+	// HostHeaderDestination
 
 	receivedRequest = false
 	originHostHeader = ""
@@ -717,7 +717,7 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 			Pattern:     "example.com/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
-			HostHeader:  "target",
+			HostHeader:  "destination",
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
