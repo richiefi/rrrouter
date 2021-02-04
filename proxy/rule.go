@@ -29,7 +29,7 @@ type HostHeaderBehavior int
 
 const (
 	HostHeaderDefault HostHeaderBehavior = iota
-	HostHeaderClient
+	HostHeaderOriginal
 	HostHeaderOverride
 	HostHeaderDestination
 )

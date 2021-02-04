@@ -335,7 +335,7 @@ func (r *router) createProxyRequest(req *http.Request, internal bool, hostHeader
 	switch hostHeader.Behavior {
 	case HostHeaderDefault, HostHeaderDestination:
 		break
-	case HostHeaderClient:
+	case HostHeaderOriginal:
 		preq.Host = req.Host
 	case HostHeaderOverride:
 		preq.Host = hostHeader.Override

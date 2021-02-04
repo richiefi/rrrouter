@@ -80,8 +80,8 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		switch rsrc.HostHeader {
 		case "":
 			hostHeader = HostHeader{Behavior: HostHeaderDefault}
-		case "client":
-			hostHeader = HostHeader{Behavior: HostHeaderClient}
+		case "original":
+			hostHeader = HostHeader{Behavior: HostHeaderOriginal}
 		case "destination":
 			hostHeader = HostHeader{Behavior: HostHeaderDestination}
 		default:

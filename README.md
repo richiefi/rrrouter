@@ -141,7 +141,7 @@ rules:
 
 ## Host header
 
-A rule with `hostheader: client` will use what the incoming request used. `hostheader: destination` will use the rule destination's host and port, which is the default. An override, `hostheader: override.example.com:9000` is used as-is.
+A rule with `hostheader: original` will use what the incoming request used. `hostheader: destination` will use the rule destination's host and port, which is the default. An override, `hostheader: override.example.com:9000` is used as-is.
 
 ```yaml
 rules:
