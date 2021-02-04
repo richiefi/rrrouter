@@ -146,6 +146,51 @@ func TestConnection_client_requests_brotli_from_gzip_origin_gets_brotli(t *testi
 	require.Equal(t, "1234", resp.Header.Get("Etag"))
 }
 
+func TestConnection_client_requests_brotli_from_gzip_origin_no_transform_set_gets_gzip(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:           0,
+		MappingURL:     "",
+		RoutingSecrets: []string{"a"},
+	}
+	requestReceived := false
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		require.Equal(t, "br", r.Header.Get("Accept-Encoding"))
+		requestReceived = true
+		w.Header().Set("Content-Encoding", "gzip")
+		w.Header().Set("Cache-Control", "no-transform")
+		w.Header().Set("Vary", "Authorization")
+		w.Header().Set("Etag", "1234")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(gzBody))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:       "127.0.0.1/t/*",
+			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:      false,
+			Recompression: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	header := http.Header{}
+	header.Set("Accept-Encoding", "br")
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, header)
+	require.True(t, requestReceived)
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
+	require.Equal(t, "Authorization", resp.Header.Get("Vary"))
+	require.Equal(t, "1234", resp.Header.Get("Etag"))
+}
+
 func TestConnection_client_requests_gzip_from_gzip_origin_gets_gzip(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
