@@ -12,7 +12,6 @@ import (
 	"github.com/richiefi/rrrouter/util"
 	"io"
 	"net/http"
-	"os"
 	"os/exec"
 	"strconv"
 	"strings"

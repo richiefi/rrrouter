@@ -43,6 +43,7 @@ type RuleSource struct {
 	Type          *string  `json:"type"`
 	HostHeader    string   `json:"hostheader"`
 	Recompression bool     `json:"recompression"`
+	CacheId       string   `json:"cache"`
 }
 
 type rulesConfig struct {
@@ -91,7 +92,11 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.Recompression {
 			recompression = true
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression)
+		cacheId := ""
+		if len(rsrc.CacheId) > 0 {
+			cacheId = rsrc.CacheId
+		}
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId)
 		if err != nil {
 			return nil, err
 		}

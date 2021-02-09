@@ -109,7 +109,7 @@ func TestRule(t *testing.T) {
 		},
 	}
 	for _, test := range tests {
-		r, err := NewRule(test.pat, test.dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false)
+		r, err := NewRule(test.pat, test.dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "")
 		if err != nil && !test.shouldError {
 			t.Errorf("Unexpected error compiling rule from %q, %q: %s", test.pat, test.dest, err)
 			continue
