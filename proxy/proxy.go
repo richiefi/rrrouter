@@ -24,14 +24,15 @@ const (
 	headerRichieRequestID     = "Richie-Request-ID"
 )
 
-type requestResult struct {
+type RequestResult struct {
 	Response      *http.Response
 	Recompression util.Recompression
 }
 
 // Router is the meat of rrrouter
 type Router interface {
-	RouteRequest(*http.Request) (*requestResult, error)
+	RouteRequest(*http.Request) (*RequestResult, error)
+	CacheId(*http.Request) string
 }
 
 type requestPerformer interface {
@@ -104,7 +105,7 @@ func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.C
 	}
 }
 
-func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
+func (r *router) RouteRequest(req *http.Request) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
 	requestsResult, err := r.createOutgoingRequests(req)
@@ -159,7 +160,7 @@ func (r *router) RouteRequest(req *http.Request) (*requestResult, error) {
 		recompression = util.GetRecompression(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
 	}
 
-	return &requestResult{
+	return &RequestResult{
 		Response:      mainResp,
 		Recompression: recompression,
 	}, nil
@@ -172,6 +173,20 @@ func canTransform(cc string) bool {
 
 	return true
 }
+
+func (r *router) CacheId(req *http.Request) string {
+	reqdst := destinationString(completeURL(req))
+	ruleMatchResults, err := r.rules.Match(reqdst, req.Method)
+	if err != nil {
+		return ""
+	}
+	if ruleMatchResults.proxyMatch != nil && ruleMatchResults.proxyMatch.rule != nil {
+		return ruleMatchResults.proxyMatch.rule.cacheId
+	}
+
+	return ""
+}
+
 type dummyReadCloser struct {
 	io.Reader
 }
@@ -262,6 +277,19 @@ type createRequestsResult struct {
 	mainRequest   *http.Request
 	copyRequest   *http.Request
 	recompression bool
+}
+
+func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
+	fullURL := completeURL(req)
+	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method)
+	if err != nil {
+		return nil, err
+	}
+	if urlMatch.rule != nil {
+		return urlMatch.rule, nil
+	}
+
+	return nil, nil
 }
 
 func (r *router) createOutgoingRequests(req *http.Request) (*createRequestsResult, error) {
