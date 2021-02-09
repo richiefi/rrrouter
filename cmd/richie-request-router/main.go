@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/richiefi/rrrouter/caching"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"time"
 
 	"github.com/alecthomas/kong"
 	apexlog "github.com/apex/log"
@@ -65,7 +67,19 @@ func (s *StartCmd) Run(ctx *cliContext) error {
 	}
 	logger.WithField("rules", rules).Debug("Parsed rules")
 	router := proxy.NewRouter(rules, logger, &c)
-	server.Run(&c, router, logger)
+
+	cfgs, err := caching.ParseStorageConfigs(mappingData)
+	if err != nil {
+		return err
+	}
+	ca := caching.NewCacheWithOptions(cfgs,
+		logger,
+		func() time.Time {
+			return time.Now()
+		},
+		nil,
+	)
+	server.Run(&c, router, logger, ca)
 	return nil
 }
 

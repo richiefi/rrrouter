@@ -4,24 +4,24 @@ import (
 	"crypto/subtle"
 	"encoding/json"
 	"fmt"
-	"io"
-	"net/http"
-	"os/exec"
-	"strconv"
-	"strings"
-
 	apexlog "github.com/apex/log"
-
+	"github.com/richiefi/rrrouter/caching"
 	"github.com/richiefi/rrrouter/config"
 	"github.com/richiefi/rrrouter/proxy"
 	"github.com/richiefi/rrrouter/usererror"
 	"github.com/richiefi/rrrouter/util"
+	"io"
+	"net/http"
+	"os"
+	"os/exec"
+	"strconv"
+	"strings"
 )
 
-// Run is the main entrypoint used to start the server.
-func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
+// Run is the main entrypoint used to s the server.
+func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
 	smux := http.NewServeMux()
-	ConfigureServeMux(smux, conf, router, logger)
+	ConfigureServeMux(smux, conf, router, logger, cache)
 	logger.WithFields(apexlog.Fields{"port": conf.Port, "br level": conf.BrotliLevel, "gzip level": conf.GZipLevel}).Debug("Starting listener")
 	tlsConfigValid, err := conf.TLSConfigIsValid()
 	if err != nil {
@@ -39,7 +39,7 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
 }
 
 // ConfigureServeMux configures the main mux with a handler for SystemInfo and another for everything else
-func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Router, logger *apexlog.Logger) {
+func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
 	s.Handle("/__SYSTEMINFO", basicAuth(showSystemInfo(), conf.AdminName, conf.AdminPass, "Restricted"))
 	s.HandleFunc("/__RRROUTER/health", func(w http.ResponseWriter, req *http.Request) {
 		fmt.Fprintf(w, "OK")
