@@ -192,7 +192,7 @@ The mechanism for selecting rules is as follows:
 
 ## Request and Response Headers
 
-rrrouter forwards all request headers to the destination server. The exception is the Host header, which is rewritten according to destination specified in the rule. This means that the destination server does not need to know the hostnames used by the upstream clients to access the content. It also means that the destination is expected to present a certificate for its own name, rather than the name the client used to perform the request.
+rrrouter forwards all request headers to the destination server. The exception is the Host header, which is rewritten according to destination specified in the rule. This means that the destination server does not need to know the hostnames used by the upstream clients to access the content. It also means that the destination is expected to present a certificate for its own name, rather than the name the client used to perform the request. The other exception is `Range`, if the request matches a caching rule.
 
 Each forwarding destination can be configured as internal or external. Internal destinations are our own microservices. External destinations are other systems, like Amazon S3.
 
@@ -215,6 +215,59 @@ When an incoming request contains a valid `Richie-Routing-Secret`, it, along wit
 A missing value in one of the other headers is replaced with a new one in incoming requests with a valid `Richie-Routing-Secret` header.
 
 If an incoming request has an invalid `Richie-Routing-Secret` or it's missing but one of the other headers has a value, the request is denied and status code 407 is returned.
+
+## Response caching
+
+Rrrouter can cache responses if a rule includes a `cache: <disk-1>` field indicating the storage to use.
+
+The cache can be configured with a number of disk storage backends:
+
+```
+ caches:
+  - size: 300G
+    path: /a/path
+    id: disk-1
+```
+
+When a qualifying request is received and it is to be cached, a cache writer is wrapped alongside the golang `http.ResponseWriter`. A file descriptor is opened for the new cache entry and written to first in full, after which the bytes to be written for the client are then read from.
+
+The cache uses a lock for each new entry's `key` to minimize the number of requests to origin. A `key` consists of the request host, path and qualifying headers. The path on disk is the cache root path joined with the hash of a `key`.
+
+Qualifying headers for cache keys include `host`, `accept-encoding` and `origin` headers.
+
+Upon trying to fetch an entry from the cache, should it not exist, the caller will receive either a writer or a channel to wait with, while a parallel request's writer finishes writing to the entry. After a writer is done, a waiting reader's channel will receive and an entry can be tried to be fetched again, as the resource can now be available under the same cache key. This subsequent call can still return zilch, as a response for a writer could have returned a header which disqualifies the resource from being stored in the cache at all.
+
+The cache does not use locks when reading, as the underlying implementation of io.ReadFrom uses the platform's sendfile() to efficiently copy the bytes over to be written to the client. A file descriptor is opened for each reader to support `Range` requests.
+
+Requests with `Range: bytes=...` are supported, but the request to the origin does not include this header. The origin's resource is requested in full and the range request is satisfied after caching.
+
+The storage tries to limit the used space to `size`. Purging is done first with entries for which the last access time is unknown. If all entries have known access times, the earliest entries are selected. This record-keeping, with million entries should fit into ~40MB.
+
+### Storage and key metadata
+
+Each cached entry is stored on disk with the qualifying request and full response headers included as extended attributes.
+
+An example:
+```
+$ xattr -l /a/path/file
+user.rrrouter: {"Host":"data.example.com","Path":"/editions-eu/package.tar","RequestHeader":{"Accept-Encoding":["gzip, deflate"]},"ResponseHeader":{"Accept-Ranges":["bytes"],"Cache-Control":["max-age=86400, s-maxage=86400"],"Content-Length":["10311696"],"Content-Type":["application/octet-stream"],"Date":["Tue, 26 Jan 2021 14:44:12 GMT"],"Etag":["\"fa459fea12476eea0e6b6389d5069630\""],"Last-Modified":["Tue, 19 Jan 2021 21:24:21 GMT"],"Server":["SomeS3/1.0"],"X-Amz-Id-2":["9Q9mgGszhQ5aF7dF5U4bAN8agKer0ugYOEzABEBxXIo8uyYQY8Nik2uBsW4yuyPnBgW38W7XO+l0"],"X-Amz-Request-Id":["F6F19B7D6DB8B77C"]},"Status":200,"Created":1611672253,"Revalidated":0,"Size":10311696}
+
+```
+
+### Responses disqualified from being cached
+
+When client headers include:
+`authorization`
+
+When response headers include:
+cache-control: no-store
+cache-control: max-age=0
+cache-control: s-maxage=0
+cache-control: private
+
+### Detecting cache usage with requests
+
+Rrrouter includes a `rrrouter-cache-status` response header, with values being `MISS`, `HIT` or `REVALIDATE`. If a rule should match and the response was not cached, the `rrrouter-cache-status` is omitted.
 
 ## System information
 
