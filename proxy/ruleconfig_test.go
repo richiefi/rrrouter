@@ -54,6 +54,40 @@ func TestConfigParse_success(t *testing.T) {
 	require.Equal(t, ruleMatchResults.proxyMatch.target, "http://richie-barserver.herokuapp.com/v1/flarp/blart")
 }
 
+func TestConfigParse_host_headers(t *testing.T) {
+	src := `{"rules": [
+        {
+            "pattern": "api.example.com/foo/*",  
+            "destination": "http://localhost:1000/v1/$1",
+        },
+        {
+            "pattern": "api.example.com/bar/*", 
+            "destination": "http://localhost:1000/v1/$1",
+			"hostheader": "original"
+        },
+        {
+            "pattern": "api.example.com/bar/*", 
+            "destination": "http://localhost:1000/v1/$1",
+			"hostheader": "example.com:3800"
+        },
+        {
+            "pattern": "api.example.com/bar/*", 
+            "destination": "http://localhost:1000/v1/$1",
+			"hostheader": "destination"
+        }
+        ]
+    }`
+	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
+	require.Nil(t, err)
+	require.Equal(t, 4, len(rules.rules))
+	require.Equal(t, HostHeaderDefault, rules.rules[0].hostHeader.Behavior)
+	require.Equal(t, HostHeaderOriginal, rules.rules[1].hostHeader.Behavior)
+	require.Equal(t, HostHeaderOverride, rules.rules[2].hostHeader.Behavior)
+	require.Equal(t, "example.com:3800", rules.rules[2].hostHeader.Override)
+	require.Equal(t, HostHeaderDestination, rules.rules[3].hostHeader.Behavior)
+
+}
+
 func TestConfigParse_mismatched_wildcard_count_error(t *testing.T) {
 	src := `{"rules": [
         {

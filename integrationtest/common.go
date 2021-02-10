@@ -121,6 +121,10 @@ func (sh *ServerHelper) getURLQueryWithBody(path string, testServerURL string, q
 			req.Header.Add(hn, hv)
 		}
 	}
+	host := header.Get("Host")
+	if len(host) > 0 {
+		req.Host = host
+	}
 	reqdump, err := httputil.DumpRequestOut(req, true)
 	if err != nil {
 		sh.Test.Fatal("Error dumping request:", err)

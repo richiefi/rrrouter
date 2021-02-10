@@ -17,10 +17,25 @@ type Rule struct {
 	methods       map[string]bool
 	ruleType      ruleType
 	recompression bool
+	hostHeader    HostHeader
 }
 
+type HostHeader struct {
+	Behavior HostHeaderBehavior
+	Override string
+}
+
+type HostHeaderBehavior int
+
+const (
+	HostHeaderDefault HostHeaderBehavior = iota
+	HostHeaderOriginal
+	HostHeaderOverride
+	HostHeaderDestination
+)
+
 // NewRule builds a new Rule
-func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, recompression bool) (*Rule, error) {
+func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader, recompression bool) (*Rule, error) {
 	lowpat := strings.ToLower(pattern)
 	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://"))
 	inputParts := strings.Split(pattern, "*")
@@ -50,6 +65,7 @@ func NewRule(pattern, destination string, internal bool, methods map[string]bool
 		internal:      internal,
 		methods:       methods,
 		ruleType:      ruleType,
+		hostHeader:    hostHeader,
 		recompression: recompression,
 	}
 

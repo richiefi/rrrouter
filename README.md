@@ -139,6 +139,19 @@ rules:
       recompression: true
 ```
 
+## Host header
+
+A rule with `hostheader: original` will use what the incoming request used. `hostheader: destination` will use the rule destination's host and port, which is the default. An override, `hostheader: app2.example.com:9000` is used as-is.
+
+```yaml
+rules:
+    - destination: https://richie-appconfig.herokuapp.com/v1/$1
+      pattern: app.example.com/config/v1/*
+      hostheader: app2.example.com:9000
+```
+
+
+
 ## Traffic Copying
 
 In addition to proxying requests, rrrouter can copy traffic to a host without reporting this to the user.
