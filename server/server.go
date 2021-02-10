@@ -12,6 +12,7 @@ import (
 	"github.com/richiefi/rrrouter/util"
 	"io"
 	"net/http"
+	"os"
 	"os/exec"
 	"strconv"
 	"strings"
@@ -50,7 +51,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 	return func(w http.ResponseWriter, r *http.Request) {
 		logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 
-		cacheId := router.CacheId(r)
+		cacheId, fr := router.CacheId(r)
 		shouldSkip := len(r.Header.Get("authorization")) > 0
 		if len(cacheId) == 0 || shouldSkip || !cache.HasStorage(cacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 			reqres, err := router.RouteRequest(r)
@@ -63,7 +64,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		}
 
 		key := caching.KeyFromRequest(r)
-		cr, err := cache.Get(cacheId, key, w, logger)
+		cr, err := cache.Get(cacheId, fr, key, w, logger)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -88,7 +89,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if cr.WaitChan != nil {
 				<-*cr.WaitChan
 				waited = true
-				cr, err = cache.Get(cacheId, key, w, logger)
+				cr, err = cache.Get(cacheId, fr, key, w, logger)
 				if err != nil {
 					writeError(w, err)
 					return

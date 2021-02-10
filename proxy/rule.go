@@ -10,15 +10,16 @@ import (
 
 // Rule describes a single forwarding rule
 type Rule struct {
-	pattern       string
-	re            *regexp.Regexp
-	dest          string
-	internal      bool
-	methods       map[string]bool
-	ruleType      ruleType
-	recompression bool
-	hostHeader    HostHeader
-	cacheId       string
+	pattern         string
+	re              *regexp.Regexp
+	dest            string
+	internal        bool
+	methods         map[string]bool
+	ruleType        ruleType
+	recompression   bool
+	hostHeader      HostHeader
+	cacheId         string
+	forceRevalidate int
 }
 
 type HostHeader struct {
@@ -36,7 +37,7 @@ const (
 )
 
 // NewRule builds a new Rule
-func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader, recompression bool, cacheId string) (*Rule, error) {
+func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader, recompression bool, cacheId string, forceRevalidate int) (*Rule, error) {
 	lowpat := strings.ToLower(pattern)
 	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://"))
 	inputParts := strings.Split(pattern, "*")
@@ -60,15 +61,16 @@ func NewRule(pattern, destination string, internal bool, methods map[string]bool
 	repattern := strings.Join(finalParts, "")
 	r := regexp.MustCompile(repattern)
 	rule := &Rule{
-		pattern:       pattern,
-		re:            r,
-		dest:          destination,
-		internal:      internal,
-		methods:       methods,
-		ruleType:      ruleType,
-		hostHeader:    hostHeader,
-		recompression: recompression,
-		cacheId:       cacheId,
+		pattern:         pattern,
+		re:              r,
+		dest:            destination,
+		internal:        internal,
+		methods:         methods,
+		ruleType:        ruleType,
+		hostHeader:      hostHeader,
+		recompression:   recompression,
+		cacheId:         cacheId,
+		forceRevalidate: forceRevalidate,
 	}
 
 	// First parse the main destination

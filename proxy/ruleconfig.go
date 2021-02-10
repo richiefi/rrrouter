@@ -36,14 +36,15 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Methods       []string `json:"methods"`
-	Pattern       string   `json:"pattern"`
-	Destination   string   `json:"destination"`
-	Internal      bool     `json:"internal"`
-	Type          *string  `json:"type"`
-	HostHeader    string   `json:"hostheader"`
-	Recompression bool     `json:"recompression"`
-	CacheId       string   `json:"cache"`
+	Methods         []string `json:"methods"`
+	Pattern         string   `json:"pattern"`
+	Destination     string   `json:"destination"`
+	Internal        bool     `json:"internal"`
+	Type            *string  `json:"type"`
+	HostHeader      string   `json:"hostheader"`
+	Recompression   bool     `json:"recompression"`
+	CacheId         string   `json:"cache"`
+	ForceRevalidate int      `json:"force_revalidate"`
 }
 
 type rulesConfig struct {
@@ -96,7 +97,11 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if len(rsrc.CacheId) > 0 {
 			cacheId = rsrc.CacheId
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId)
+		forceRevalidate := 0
+		if rsrc.ForceRevalidate > 0 {
+			forceRevalidate = rsrc.ForceRevalidate
+		}
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate)
 		if err != nil {
 			return nil, err
 		}

@@ -32,7 +32,7 @@ type RequestResult struct {
 // Router is the meat of rrrouter
 type Router interface {
 	RouteRequest(*http.Request) (*RequestResult, error)
-	CacheId(*http.Request) string
+	CacheId(*http.Request) (string, int)
 }
 
 type requestPerformer interface {
@@ -174,17 +174,17 @@ func canTransform(cc string) bool {
 	return true
 }
 
-func (r *router) CacheId(req *http.Request) string {
+func (r *router) CacheId(req *http.Request) (string, int) {
 	reqdst := destinationString(completeURL(req))
 	ruleMatchResults, err := r.rules.Match(reqdst, req.Method)
 	if err != nil {
-		return ""
+		return "", 0
 	}
 	if ruleMatchResults.proxyMatch != nil && ruleMatchResults.proxyMatch.rule != nil {
-		return ruleMatchResults.proxyMatch.rule.cacheId
+		return ruleMatchResults.proxyMatch.rule.cacheId, ruleMatchResults.proxyMatch.rule.forceRevalidate
 	}
 
-	return ""
+	return "", 0
 }
 
 type dummyReadCloser struct {

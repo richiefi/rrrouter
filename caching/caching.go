@@ -17,7 +17,7 @@ import (
 )
 
 type Cache interface {
-	Get(string, Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, error)
+	Get(string, int, Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, error)
 	HasStorage(string) bool
 	Invalidate(Key, *apexlog.Logger)
 }
@@ -81,7 +81,7 @@ func (c *cache) readerNotifier() {
 	}
 }
 
-func (c *cache) Get(cacheId string, k Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, error) {
+func (c *cache) Get(cacheId string, forceRevalidate int, k Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, error) {
 	s := c.storageWithCacheId(cacheId)
 	rc, sm, err := (*s).Get(k)
 	if err != nil {
@@ -114,17 +114,25 @@ func (c *cache) Get(cacheId string, k Key, w http.ResponseWriter, logctx *apexlo
 		age = c.now().Unix() - sm.Created
 	}
 
-	if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
-		if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
-			defer rc.Close()
-			return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, nil
+	shouldRevalidate := false
+	if forceRevalidate != 0 {
+		fmt.Println("forceRevalidate", forceRevalidate)
+		shouldRevalidate = age >= int64(forceRevalidate)
+	}
+
+	if !shouldRevalidate {
+		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
+			fmt.Println("Matching etags")
+			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+				defer rc.Close()
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, nil
+			}
 		}
 	}
 
-	shouldRevalidate := false
 	expires := sm.ResponseHeader.Get("expires")
 	var expiresTime time.Time
-	if len(expires) > 0 {
+	if !shouldRevalidate && len(expires) > 0 {
 		expiresTime = c.now()
 		for _, f := range []string{time.RFC1123, time.RFC1123Z} {
 			var err error
@@ -137,8 +145,8 @@ func (c *cache) Get(cacheId string, k Key, w http.ResponseWriter, logctx *apexlo
 		shouldRevalidate = expiresTime.Unix() <= c.now().Unix()
 	}
 
-	dirs := GetCacheControlDirectives(sm.ResponseHeader)
 	if !shouldRevalidate {
+		dirs := GetCacheControlDirectives(sm.ResponseHeader)
 		if dirs.SMaxAge != nil {
 			shouldRevalidate = *dirs.SMaxAge <= age
 		} else if dirs.MaxAge != nil {
@@ -199,10 +207,11 @@ func (c *cache) defaultStorage() *Storage {
 }
 
 type Key struct {
-	host            string
-	path            string
-	storedHeaders   http.Header
-	originalHeaders http.Header
+	host                     string
+	path                     string
+	storedHeaders            http.Header
+	originalHeaders          http.Header
+	forcedRevalidateInterval int
 }
 
 func KeyFromRequest(r *http.Request) Key {

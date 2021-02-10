@@ -234,6 +234,123 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_forced_revalidate_interval(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123)}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	}, nil)
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, 1, timesOriginHit)
+
+	now = now.Add(time.Second * 10)
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123)}
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, 2, timesOriginHit)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, 2, timesOriginHit)
+}
+
+func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123), "etag": "1", "cache-control": "public", "vary": "origin"}
+	originBody := []byte("ab")
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(originBody)
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	}, nil)
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "1", resp.Header.Get("etag"))
+	require.Equal(t, 1, timesOriginHit)
+
+	now = now.Add(time.Second * 10)
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123), "etag": "1", "cache-control": "public", "vary": "origin"}
+	originBody = []byte("AB")
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"1"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("AB"), body)
+	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "1", resp.Header.Get("etag"))
+	require.Equal(t, 2, timesOriginHit)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("AB"), body)
+	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "1", resp.Header.Get("etag"))
+	require.Equal(t, 2, timesOriginHit)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"2"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 304, resp.StatusCode)
+	require.Equal(t, []byte(""), body)
+	require.Equal(t, "1", resp.Header.Get("etag"))
+	require.Equal(t, "origin", resp.Header.Get("vary"))
+	require.Equal(t, "public", resp.Header.Get("cache-control"))
+	require.Equal(t, now.Add(time.Minute*1).Format(time.RFC1123), resp.Header.Get("expires"))
+	require.Equal(t, 2, timesOriginHit)
+}
+
 func TestCache_item_cached_then_cache_control_max_age_passed(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
@@ -618,7 +735,7 @@ type testCache struct {
 	getWriter   func(cacheId string, k caching.Key, revalidate bool) caching.CacheWriter
 }
 
-func (c *testCache) Get(s string, k caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, error) {
+func (c *testCache) Get(s string, ri int, k caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, error) {
 	if s != c.cacheId {
 		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, nil
 	}
@@ -733,6 +850,24 @@ func rulesWithCacheId(t *testing.T, cacheId string, originServer *httptest.Serve
 			Internal:      false,
 			Recompression: false,
 			CacheId:       cacheId,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
+func rulesWithCacheIdRevalidate(t *testing.T, cacheId string, forceRevalidate int, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:         "127.0.0.1/t/*",
+			Destination:     fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:        false,
+			Recompression:   false,
+			CacheId:         cacheId,
+			ForceRevalidate: forceRevalidate,
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {
