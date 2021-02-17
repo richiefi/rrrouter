@@ -483,7 +483,7 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -491,7 +491,7 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_cache_control_no_store_not_cached(t *testing.T) {
@@ -523,7 +523,7 @@ func TestCache_cache_control_no_store_not_cached(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -531,7 +531,7 @@ func TestCache_cache_control_no_store_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
@@ -563,7 +563,7 @@ func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -571,7 +571,7 @@ func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_request_with_authorization_header_skipped(t *testing.T) {

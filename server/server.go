@@ -116,7 +116,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					writeError(w, err)
 					return
 				}
-				requestHandler(reqres, logger, conf)(w, r, nil, nil, writeBody, false, nil)
+				requestHandler(reqres, logger, conf)(w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil, writeBody, false, nil)
 				return
 			} else {
 				if rRange != nil {
@@ -138,6 +138,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
 				if dirs.DoNotCache() {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
 					cache.Invalidate(key, logger)
 					writeBodyFunc = writeBody
 					writer = w
