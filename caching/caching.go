@@ -232,7 +232,7 @@ func (k Key) FsName() string {
 }
 
 var keyClientHeaders = []string{"host", "accept-encoding", "origin"}
-var HeaderRrrouterCacheStatus = "rrrouter-cache-status"
+var HeaderRrrouterCacheStatus = "richie-edge-cache"
 
 type cacheConfig struct {
 	Storages []storageConfiguration `json:"caches"`

@@ -267,7 +267,7 @@ cache-control: private
 
 ### Detecting cache usage with requests
 
-Rrrouter includes a `rrrouter-cache-status` response header, with values being `MISS`, `HIT` or `REVALIDATE`. If a rule should match and the response was not cached, the `rrrouter-cache-status` is omitted.
+Rrrouter includes a `richie-edge-cache` response header, with values being `miss`, `hit` or `revalidate`. If a rule should match and the response was not cached, the `richie-edge-cache` is omitted.
 
 ## System information
 

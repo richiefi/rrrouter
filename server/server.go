@@ -101,7 +101,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			var errCleanup func()
 
 			if waited && cr.Reader != nil {
-				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "MISS")
+				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 				clearAndCopyHeaders(w, cr.Metadata.Header, alwaysInclude)
 				w.WriteHeader(cr.Metadata.Status)
 
@@ -143,9 +143,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					writer = w
 				} else {
 					if cr.ShouldRevalidate {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "REVALIDATED")
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 					} else {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "MISS")
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 					}
 					writeBodyFunc = makeCachingWriteBody(rRange)
 					writer = cr.Writer
@@ -156,7 +156,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			}
 		} else {
-			alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "HIT")
+			alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 			alwaysInclude.Set(headerAge, strconv.Itoa(int(cr.Age)))
 
 			var statusOverride *int

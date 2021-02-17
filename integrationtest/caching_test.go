@@ -95,7 +95,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 	require.Equal(t, 1, getCalled)
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 200, resp.StatusCode)
 }
 
@@ -166,7 +166,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 	require.True(t, closeCalled)
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 
 	writeCalled = false
 	closeCalled = false
@@ -178,7 +178,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 	require.False(t, writeHeaderCalled)
 	require.False(t, writeCalled)
 	require.False(t, closeCalled)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 }
 
 var now time.Time
@@ -213,7 +213,7 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	defer resp.Body.Close()
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 1, timesOriginHit)
 
 	now = now.Add(time.Minute * 1)
@@ -223,14 +223,14 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 2, timesOriginHit)
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 2, timesOriginHit)
 }
 
@@ -263,7 +263,7 @@ func TestCache_forced_revalidate_interval(t *testing.T) {
 	defer resp.Body.Close()
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 1, timesOriginHit)
 
 	now = now.Add(time.Second * 10)
@@ -273,14 +273,14 @@ func TestCache_forced_revalidate_interval(t *testing.T) {
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 2, timesOriginHit)
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 2, timesOriginHit)
 }
 
@@ -314,7 +314,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	defer resp.Body.Close()
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, "1", resp.Header.Get("etag"))
 	require.Equal(t, 1, timesOriginHit)
 
@@ -327,7 +327,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, 200, resp.StatusCode)
 	require.Equal(t, []byte("AB"), body)
-	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, "1", resp.Header.Get("etag"))
 	require.Equal(t, 2, timesOriginHit)
 
@@ -335,7 +335,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("AB"), body)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, "1", resp.Header.Get("etag"))
 	require.Equal(t, 2, timesOriginHit)
 
@@ -383,7 +383,7 @@ func TestCache_item_cached_then_cache_control_max_age_passed(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
 	//require.Equal(t, true, <-closeChan)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 
@@ -393,14 +393,14 @@ func TestCache_item_cached_then_cache_control_max_age_passed(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	//require.Equal(t, true, <-closeChan)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
@@ -434,7 +434,7 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
 	//require.Equal(t, true, <-closeChan)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -443,7 +443,7 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
 	//require.Equal(t, true, <-closeChan)
-	require.Equal(t, "REVALIDATED", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Second * 30)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -451,7 +451,7 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_cache_control_private_not_cached(t *testing.T) {
@@ -483,7 +483,7 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -491,7 +491,7 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_cache_control_no_store_not_cached(t *testing.T) {
@@ -523,7 +523,7 @@ func TestCache_cache_control_no_store_not_cached(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -531,7 +531,7 @@ func TestCache_cache_control_no_store_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
@@ -563,7 +563,7 @@ func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -571,7 +571,7 @@ func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_request_with_authorization_header_skipped(t *testing.T) {
@@ -603,7 +603,7 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer abc"}})
@@ -611,7 +611,7 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_from_cache(t *testing.T) {
@@ -641,7 +641,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body := sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "MISS", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 206, resp.StatusCode)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "2", resp.Header.Get("content-length"))
@@ -652,7 +652,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 206, resp.StatusCode)
 	require.Equal(t, []byte("AB"), body)
 	require.Equal(t, "2", resp.Header.Get("content-length"))
@@ -663,7 +663,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 200, resp.StatusCode)
 	require.Equal(t, []byte("abAB"), body)
 	require.Equal(t, "4", resp.Header.Get("content-length"))
@@ -673,7 +673,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 206, resp.StatusCode)
 	require.Equal(t, []byte("a"), body)
 	require.Equal(t, "1", resp.Header.Get("content-length"))
@@ -683,7 +683,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 206, resp.StatusCode)
 	require.Equal(t, []byte("abAB"), body)
 	require.Equal(t, "4", resp.Header.Get("content-length"))
@@ -693,7 +693,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 206, resp.StatusCode)
 	require.Equal(t, []byte("AB"), body)
 	require.Equal(t, "2", resp.Header.Get("content-length"))
@@ -703,7 +703,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 206, resp.StatusCode)
 	require.Equal(t, []byte("B"), body)
 	require.Equal(t, "1", resp.Header.Get("content-length"))
@@ -713,7 +713,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "HIT", resp.Header.Get("rrrouter-cache-status"))
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 200, resp.StatusCode)
 	require.Equal(t, []byte("abAB"), body)
 	require.Equal(t, "4", resp.Header.Get("content-length"))
