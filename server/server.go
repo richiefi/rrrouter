@@ -59,7 +59,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				writeError(w, err)
 				return
 			}
-			requestHandler(reqres, logger, conf)(w, r, nil, nil, writeBody, false, nil)
+			requestHandler(reqres, logger, conf)(w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"pass"}}, nil, writeBody, false, nil)
 			return
 		}
 

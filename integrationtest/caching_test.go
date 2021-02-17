@@ -603,7 +603,7 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "pass", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer abc"}})
@@ -611,7 +611,7 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	require.Equal(t, "", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "pass", resp.Header.Get("richie-edge-cache"))
 }
 
 func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_from_cache(t *testing.T) {
