@@ -116,13 +116,11 @@ func (c *cache) Get(cacheId string, forceRevalidate int, k Key, w http.ResponseW
 
 	shouldRevalidate := false
 	if forceRevalidate != 0 {
-		fmt.Println("forceRevalidate", forceRevalidate)
 		shouldRevalidate = age >= int64(forceRevalidate)
 	}
 
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
-			fmt.Println("Matching etags")
 			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
 				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, nil
