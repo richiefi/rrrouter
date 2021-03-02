@@ -17,8 +17,8 @@ import (
 )
 
 type Storage interface {
-	GetWriter(Key, bool, *chan string) StorageWriter
-	Get(Key) (*os.File, StorageMetadata, error)
+	GetWriter(Key, bool, *chan Key) StorageWriter
+	Get([]Key) (*os.File, StorageMetadata, Key, error)
 	Id() string
 }
 
@@ -129,7 +129,7 @@ type purgeableItems struct {
 	size               int64
 }
 
-func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan string) StorageWriter {
+func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan Key) StorageWriter {
 	fp := filepath.Join(s.path, key.FsName())
 	exists, err := pathExists(fp)
 	if err != nil {
@@ -161,26 +161,37 @@ const (
 	metadataXAttrName = "user.rrrouter"
 )
 
-func (s *storage) Get(key Key) (*os.File, StorageMetadata, error) {
-	fp := filepath.Join(s.path, key.FsName())
-
-	f, err := os.Open(fp)
-	if err != nil {
-		return nil, StorageMetadata{}, err
+func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
+	if len(keys) == 0 {
+		return nil, StorageMetadata{}, Key{}, nil
 	}
 
-	xattrb, err := xattr.FGet(f, metadataXAttrName)
-	if err != nil {
-		s.logger.Errorf("Failed to get metadata from %v\n", fp)
-		return nil, StorageMetadata{}, err
+	for _, key := range keys {
+		fp := filepath.Join(s.path, key.FsName())
+
+		f, err := os.Open(fp)
+		if err != nil {
+			if os.IsNotExist(err) {
+				continue
+			}
+			return nil, StorageMetadata{}, key, err
+		}
+
+		xattrb, err := xattr.FGet(f, metadataXAttrName)
+		if err != nil {
+			s.logger.Errorf("Failed to get metadata from %v\n", fp)
+			return nil, StorageMetadata{}, key, err
+		}
+
+		sm, err := decodeStorageMetadata(xattrb)
+		if err != nil {
+			return nil, StorageMetadata{}, key, err
+		}
+
+		return f, sm, key, nil
 	}
 
-	sm, err := decodeStorageMetadata(xattrb)
-	if err != nil {
-		return nil, StorageMetadata{}, err
-	}
-
-	return f, sm, nil
+	return nil, StorageMetadata{}, keys[0], os.ErrNotExist
 }
 
 func (s *storage) Id() string {
@@ -350,7 +361,7 @@ type storageWriter struct {
 	path           string
 	invalidated    bool
 	closeFinisher  func(name string, size int64)
-	closeNotifier  *chan string
+	closeNotifier  *chan Key
 	fd             *os.File
 	writtenStatus  int
 	responseHeader http.Header
@@ -462,7 +473,7 @@ func (sw *storageWriter) Close() error {
 	}
 
 	if sw.closeNotifier != nil {
-		*sw.closeNotifier <- sw.key.FsName()
+		*sw.closeNotifier <- sw.key
 	}
 
 	return err

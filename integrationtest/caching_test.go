@@ -67,7 +67,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	var written []byte
 	getCalled := 0
-	tc := NewTestCacheGet("disk1", func(s string, key caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, error) {
+	tc := NewTestCacheGet("disk1", func(s string, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 		getCalled += 1
 		sw := NewTestStorageWriter(
 			func(p []byte) (n int, err error) {
@@ -84,7 +84,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -128,11 +128,11 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 	closeCalled := false
 	writeHeaderCalled := false
 
-	tc := NewTestCache("disk1", func(s string, k caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, error) {
+	tc := NewTestCache("disk1", func(s string, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 		getCalled += 1
 		if getCalled == 2 {
 			f := tempFile(t, []byte("ab"))
-			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, nil
+			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 		}
 
 		sw := NewTestStorageWriter(
@@ -152,7 +152,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		cw, _ := sw.(caching.CacheWriter)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -731,20 +731,20 @@ type testCache struct {
 	caching.Cache
 	cacheId     string
 	cachedEntry *entry
-	get         func(string, caching.Key, http.ResponseWriter, *apexlog.Logger) (caching.CacheResult, error)
+	get         func(string, []caching.Key, http.ResponseWriter, *apexlog.Logger) (caching.CacheResult, caching.Key, error)
 	getWriter   func(cacheId string, k caching.Key, revalidate bool) caching.CacheWriter
 }
 
-func (c *testCache) Get(s string, ri int, k caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, error) {
+func (c *testCache) Get(s string, ri int, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 	if s != c.cacheId {
-		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, nil
+		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, keys[0], nil
 	}
 
 	if e := c.cachedEntry; e != nil {
-		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age), e.mustRevalidate}, nil
+		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age), e.mustRevalidate}, keys[0], nil
 	}
 
-	return c.get(s, k, w, l)
+	return c.get(s, keys, w, l)
 }
 
 func (c *testCache) HasStorage(id string) bool {
@@ -824,11 +824,11 @@ func (c *testCache) GetWriter(cacheId string, k caching.Key, revalidate bool) ca
 	return c.getWriter(cacheId, k, revalidate)
 }
 
-func NewTestCache(s string, get func(string, caching.Key, http.ResponseWriter, *apexlog.Logger) (caching.CacheResult, error)) *testCache {
+func NewTestCache(s string, get func(string, []caching.Key, http.ResponseWriter, *apexlog.Logger) (caching.CacheResult, caching.Key, error)) *testCache {
 	return &testCache{cacheId: s, get: get}
 }
 
-func NewTestCacheGet(s string, get func(string, caching.Key, http.ResponseWriter, *apexlog.Logger) (caching.CacheResult, error)) *testCache {
+func NewTestCacheGet(s string, get func(string, []caching.Key, http.ResponseWriter, *apexlog.Logger) (caching.CacheResult, caching.Key, error)) *testCache {
 	return &testCache{cacheId: s, get: get, getWriter: func(cacheId string, k caching.Key, revalidate bool) caching.CacheWriter {
 		return newTestCacheWriter(cacheId, k)
 	}}

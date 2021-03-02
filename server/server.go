@@ -63,8 +63,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			return
 		}
 
-		key := caching.KeyFromRequest(r)
-		cr, err := cache.Get(cacheId, fr, key, w, logger)
+		keys := caching.KeysFromRequest(r)
+		cr, key, err := cache.Get(cacheId, fr, keys, w, logger)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -87,9 +87,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		if cr.Writer != nil || cr.WaitChan != nil {
 			waited := false
 			if cr.WaitChan != nil {
-				<-*cr.WaitChan
+				waitedKey := <-*cr.WaitChan
 				waited = true
-				cr, err = cache.Get(cacheId, fr, key, w, logger)
+				cr, _, err = cache.Get(cacheId, fr, []caching.Key{waitedKey}, w, logger)
 				if err != nil {
 					writeError(w, err)
 					return

@@ -18,12 +18,12 @@ import (
 )
 
 type Cache interface {
-	Get(string, int, Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, error)
+	Get(string, int, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
 	Invalidate(Key, *apexlog.Logger)
 }
 
-func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, now func() time.Time, closeNotifier *chan string) Cache {
+func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, now func() time.Time, closeNotifier *chan Key) Cache {
 	storages := make([]*Storage, 0, len(opts))
 	for _, o := range opts {
 		s := NewDiskStorage(o.Id, o.Path, int64(o.Size), logger, now)
@@ -36,14 +36,14 @@ func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, no
 
 	c := &cache{
 		storages:           storages,
-		waitingReaders:     make(map[string][]*chan bool, 10),
+		waitingReaders:     make(map[string][]*chan Key, 10),
 		waitingReadersLock: sync.Mutex{},
 		logger:             logger,
 		now:                now,
 		closeNotifier:      closeNotifier,
 	}
 
-	closeNotif := make(chan string)
+	closeNotif := make(chan Key)
 	c.closeNotifier = &closeNotif
 
 	go c.readerNotifier()
@@ -53,12 +53,12 @@ func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, no
 
 type cache struct {
 	Cache
-	waitingReaders     map[string][]*chan bool
+	waitingReaders     map[string][]*chan Key
 	waitingReadersLock sync.Mutex
 	storages           []*Storage
 	logger             *apexlog.Logger
 	now                func() time.Time
-	closeNotifier      *chan string
+	closeNotifier      *chan Key
 }
 
 func (c *cache) readerNotifier() {
@@ -67,14 +67,16 @@ func (c *cache) readerNotifier() {
 	}
 
 	for {
+		c.logger.Debugf("%v", c.waitingReaders)
 		c.logger.Debugf("readerNotifier waiting for key")
-		rk := <-*c.closeNotifier
-		c.logger.Debugf("readerNotifier got key: %v", rk)
+		k := <-*c.closeNotifier
+		c.logger.Debugf("readerNotifier got key: %v", k)
+		rk := k.FsName()
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
 			for i, r := range readers {
 				c.logger.Debugf("readerNotifier notifying %v %v", i, r)
-				*r <- true
+				*r <- k
 			}
 			delete(c.waitingReaders, rk)
 		}
@@ -82,29 +84,41 @@ func (c *cache) readerNotifier() {
 	}
 }
 
-func (c *cache) Get(cacheId string, forceRevalidate int, k Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, error) {
+func notFoundPreferredKey(keys []Key) Key {
+	for _, k := range keys {
+		if k.opaqueOrigin {
+			return k
+		}
+	}
+
+	return keys[0]
+}
+
+func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
 	s := c.storageWithCacheId(cacheId)
-	rc, sm, err := (*s).Get(k)
+	rc, sm, k, err := (*s).Get(keys)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching key %v\n", (*s).Id(), k.FsName()))
-			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, ShouldRevalidate: false}, err
+			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, ShouldRevalidate: false}, k, err
 		}
 
+		k = notFoundPreferredKey(keys)
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
+		c.logger.Debugf("Checking if %v exists", rk)
 		if _, exists := c.waitingReaders[rk]; exists {
-			wc := make(chan bool)
+			wc := make(chan Key)
 			defer c.waitingReadersLock.Unlock()
 			c.waitingReaders[rk] = append(c.waitingReaders[rk], &wc)
-			c.logger.Debugf("Locking for reader: %v", k)
-			return CacheResult{NotFoundReader, nil, nil, &wc, CacheMetadata{}, 0, false}, nil
+			c.logger.Debugf("Locking for reader: %v", rk)
+			return CacheResult{NotFoundReader, nil, nil, &wc, CacheMetadata{}, 0, false}, k, nil
 		} else {
-			c.waitingReaders[rk] = make([]*chan bool, 0)
+			c.waitingReaders[rk] = make([]*chan Key, 0)
 			defer c.waitingReadersLock.Unlock()
 			writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, false), logctx)
-			c.logger.Debugf("Locking for writer: %v", k)
-			return CacheResult{NotFoundWriter, nil, writer, nil, CacheMetadata{}, 0, false}, nil
+			c.logger.Debugf("Locking for writer: %v", rk)
+			return CacheResult{NotFoundWriter, nil, writer, nil, CacheMetadata{}, 0, false}, k, nil
 		}
 	}
 
@@ -124,7 +138,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, k Key, w http.ResponseW
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}
 		}
 	}
@@ -155,10 +169,10 @@ func (c *cache) Get(cacheId string, forceRevalidate int, k Key, w http.ResponseW
 
 	if shouldRevalidate {
 		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, true), logctx)
-		return CacheResult{Found, rc, writer, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size}, age, true}, nil
+		return CacheResult{Found, rc, writer, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size}, age, true}, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size}, age, false}, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size}, age, false}, k, nil
 }
 
 func (c *cache) HasStorage(id string) bool {
@@ -170,7 +184,7 @@ func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 		return
 	}
 
-	*c.closeNotifier <- k.FsName()
+	*c.closeNotifier <- k
 }
 
 func (c *cache) getWriter(cacheId string, k Key, revalidate bool) CacheWriter {
@@ -206,15 +220,31 @@ func (c *cache) defaultStorage() *Storage {
 }
 
 type Key struct {
-	host                     string
-	path                     string
-	storedHeaders            http.Header
-	originalHeaders          http.Header
-	forcedRevalidateInterval int
+	host            string
+	path            string
+	opaqueOrigin    bool
+	storedHeaders   http.Header
+	originalHeaders http.Header
 }
 
-func KeyFromRequest(r *http.Request) Key {
-	return Key{host: r.Host, path: r.URL.Path, storedHeaders: allowHeaders(r.Header, keyClientHeaders), originalHeaders: r.Header}
+func KeysFromRequest(r *http.Request) []Key {
+	keys := make([]Key, 0)
+	if len(r.Header.Get("origin")) > 0 {
+		k := newKey(r.Host, r.URL.Path, false, r.Header, append(keyClientHeaders, "origin"))
+		keys = append(keys, k)
+		k = newKey(r.Host, r.URL.Path, true, r.Header, keyClientHeaders)
+		keys = append(keys, k)
+	} else {
+		k := newKey(r.Host, r.URL.Path, false, r.Header, keyClientHeaders)
+		keys = append(keys, k)
+	}
+
+	return keys
+}
+
+func newKey(host string, path string, opaqueOrigin bool, originalHeaders http.Header, allowHeaderKeys []string) Key {
+	k := Key{host: host, path: path, opaqueOrigin: opaqueOrigin, storedHeaders: allowHeaders(originalHeaders, allowHeaderKeys), originalHeaders: originalHeaders}
+	return k
 }
 
 func (k Key) FsName() string {
@@ -274,7 +304,7 @@ type CacheResult struct {
 	Kind             CacheResultKind
 	Reader           *os.File
 	Writer           CachingResponseWriter
-	WaitChan         *chan bool
+	WaitChan         *chan Key
 	Metadata         CacheMetadata
 	Age              int64
 	ShouldRevalidate bool
