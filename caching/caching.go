@@ -10,6 +10,7 @@ import (
 	"io"
 	"net/http"
 	"os"
+	"sort"
 	"strconv"
 	"strings"
 	"sync"
@@ -217,15 +218,22 @@ func KeyFromRequest(r *http.Request) Key {
 }
 
 func (k Key) FsName() string {
+	headerKeys := make([]string, 0)
 	hs := ""
-	for k, vv := range k.storedHeaders {
-		vs := ""
-		for _, v := range vv {
-			vs += v
+	for hk, _ := range k.storedHeaders {
+		headerKeys = append(headerKeys, hk)
+	}
+	sort.Strings(headerKeys)
+	for _, hk := range headerKeys {
+		hs += hk
+		for _, v := range k.storedHeaders[hk] {
+			hs += v
 		}
-		hs += k + vs
 	}
 	s := k.host + k.path + hs
+	if k.opaqueOrigin {
+		s += "opaqueOrigin"
+	}
 	return strconv.Itoa(int(adler32.Checksum([]byte(s))))
 }
 
