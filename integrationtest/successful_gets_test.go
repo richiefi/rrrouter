@@ -808,5 +808,34 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 	require.True(t, receivedRequest)
 	require.Equal(t, "example.com:3800", originHostHeader)
 	targetServer.Close()
+}
 
+func TestConnection_access_control_allow_origin_override_passed_to_response(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:       0,
+		MappingURL: "",
+	}
+
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		t.Log("Received request on the target server", r)
+		w.WriteHeader(http.StatusOK)
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:    false,
+			Acao:        "a,b",
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	resp := sh.getURL("/t/asdf", listener.URL)
+	require.Equal(t, "a,b", resp.Header.Get("access-control-allow-origin"))
 }

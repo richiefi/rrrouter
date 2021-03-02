@@ -51,20 +51,27 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 	return func(w http.ResponseWriter, r *http.Request) {
 		logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 
-		cacheId, fr := router.CacheId(r)
+		rf := router.GetRoutingFlavors(r)
+		alwaysInclude := http.Header{}
+		for hname, hvals := range rf.ResponseHeaders {
+			for _, hval := range hvals {
+				alwaysInclude.Set(hname, hval)
+			}
+		}
 		shouldSkip := len(r.Header.Get("authorization")) > 0
-		if len(cacheId) == 0 || shouldSkip || !cache.HasStorage(cacheId) || (r.Method != "GET" && r.Method != "HEAD") {
+		if len(rf.CacheId) == 0 || shouldSkip || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 			reqres, err := router.RouteRequest(r)
 			if err != nil {
 				writeError(w, err)
 				return
 			}
-			requestHandler(reqres, logger, conf)(w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"pass"}}, nil, writeBody, false, nil)
+			alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+			requestHandler(reqres, logger, conf)(w, r, alwaysInclude, nil, writeBody, false, nil)
 			return
 		}
 
 		keys := caching.KeysFromRequest(r)
-		cr, key, err := cache.Get(cacheId, fr, keys, w, logger)
+		cr, key, err := cache.Get(rf.CacheId, rf.ForceRevalidate, keys, w, logger)
 		if err != nil {
 			writeError(w, err)
 			return
@@ -83,13 +90,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			return
 		}
 
-		alwaysInclude := http.Header{}
 		if cr.Writer != nil || cr.WaitChan != nil {
 			waited := false
 			if cr.WaitChan != nil {
 				waitedKey := <-*cr.WaitChan
 				waited = true
-				cr, _, err = cache.Get(cacheId, fr, []caching.Key{waitedKey}, w, logger)
+				cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, w, logger)
 				if err != nil {
 					writeError(w, err)
 					return

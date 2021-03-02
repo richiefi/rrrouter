@@ -32,7 +32,13 @@ type RequestResult struct {
 // Router is the meat of rrrouter
 type Router interface {
 	RouteRequest(*http.Request) (*RequestResult, error)
-	CacheId(*http.Request) (string, int)
+	GetRoutingFlavors(*http.Request) RoutingFlavors
+}
+
+type RoutingFlavors struct {
+	CacheId         string
+	ForceRevalidate int
+	ResponseHeaders http.Header
 }
 
 type requestPerformer interface {
@@ -174,17 +180,24 @@ func canTransform(cc string) bool {
 	return true
 }
 
-func (r *router) CacheId(req *http.Request) (string, int) {
+func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
 	reqdst := destinationString(completeURL(req))
 	ruleMatchResults, err := r.rules.Match(reqdst, req.Method)
+	rf := RoutingFlavors{}
 	if err != nil {
-		return "", 0
+		return rf
 	}
 	if ruleMatchResults.proxyMatch != nil && ruleMatchResults.proxyMatch.rule != nil {
-		return ruleMatchResults.proxyMatch.rule.cacheId, ruleMatchResults.proxyMatch.rule.forceRevalidate
+		rf.CacheId = ruleMatchResults.proxyMatch.rule.cacheId
+		rf.ForceRevalidate = ruleMatchResults.proxyMatch.rule.forceRevalidate
+		if len(ruleMatchResults.proxyMatch.rule.acao) > 0 {
+			h := http.Header{}
+			h.Add("access-control-allow-origin", ruleMatchResults.proxyMatch.rule.acao)
+			rf.ResponseHeaders = h
+		}
 	}
 
-	return "", 0
+	return rf
 }
 
 type dummyReadCloser struct {

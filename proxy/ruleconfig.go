@@ -45,6 +45,7 @@ type RuleSource struct {
 	Recompression   bool     `json:"recompression"`
 	CacheId         string   `json:"cache"`
 	ForceRevalidate int      `json:"force_revalidate"`
+	Acao            string   `json:"acao"`
 }
 
 type rulesConfig struct {
@@ -101,7 +102,11 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.ForceRevalidate > 0 {
 			forceRevalidate = rsrc.ForceRevalidate
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate)
+		acao := ""
+		if len(rsrc.Acao) > 0 {
+			acao = rsrc.Acao
+		}
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, acao)
 		if err != nil {
 			return nil, err
 		}
