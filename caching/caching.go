@@ -267,7 +267,15 @@ func (k Key) FsName() string {
 	return strconv.Itoa(int(adler32.Checksum([]byte(s))))
 }
 
-var keyClientHeaders = []string{"host", "accept-encoding", "origin"}
+func (k Key) HasOpaqueOrigin() bool {
+	return k.opaqueOrigin
+}
+
+func (k Key) HasFullOrigin() bool {
+	return k.opaqueOrigin == false && len(k.storedHeaders.Get("origin")) > 0
+}
+
+var keyClientHeaders = []string{"host", "accept-encoding"}
 var HeaderRrrouterCacheStatus = "richie-edge-cache"
 
 type cacheConfig struct {

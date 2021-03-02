@@ -155,7 +155,8 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan Key) S
 			}
 		}, now: func() time.Time {
 			return s.now()
-		}, closeNotifier: closeNotifier}
+		}, closeNotifier: closeNotifier,
+		log: s.logger}
 }
 
 const (
@@ -477,7 +478,7 @@ func (sw *storageWriter) Close() error {
 	if sw.closeNotifier != nil {
 		*sw.closeNotifier <- sw.key
 		if sw.oldKey != nil {
-			sw.log.Debugf("Had old key", sw.oldKey)
+			sw.log.Debugf("Had old key: %v", *sw.oldKey)
 			*sw.closeNotifier <- *sw.oldKey
 		}
 	}

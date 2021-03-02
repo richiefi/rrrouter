@@ -148,6 +148,17 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					} else {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 					}
+					if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
+						for _, k := range keys {
+							if k.HasFullOrigin() {
+								err = cr.Writer.ChangeKey(k)
+								if err != nil {
+									writeError(w, err)
+									return
+								}
+							}
+						}
+					}
 					writeBodyFunc = makeCachingWriteBody(rRange)
 					writer = cr.Writer
 					errCleanup = func() { _ = cr.Writer.Abort(); cache.Invalidate(key, logger) }

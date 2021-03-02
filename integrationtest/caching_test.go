@@ -351,6 +351,122 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_origin_keyed_by_existence_rather_than_value_if_vary_origin_not_in_origin_response(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123)}
+	originBody := []byte("ab")
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(originBody)
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	}, nil)
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	reqhdrs := http.Header{"origin": []string{"https://example.com/A"}}
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 1, timesOriginHit)
+
+	reqhdrs = http.Header{"origin": []string{"https://example.com/B"}}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 1, timesOriginHit)
+
+	reqhdrs = http.Header{}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 2, timesOriginHit)
+}
+
+func TestCache_origin_keyed_by_origin_value_if_vary_origin_in_origin_response(t *testing.T) {
+
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123), "vary": "origin"}
+	originBody := []byte("ab")
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write(originBody)
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	}, nil)
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	reqhdrs := http.Header{"origin": []string{"https://example.com/A"}}
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "origin", resp.Header.Get("vary"))
+	require.Equal(t, 1, timesOriginHit)
+
+	reqhdrs = http.Header{"origin": []string{"https://example.com/A"}}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "origin", resp.Header.Get("vary"))
+	require.Equal(t, 1, timesOriginHit)
+
+	reqhdrs = http.Header{"origin": []string{"https://example.com/B"}}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "origin", resp.Header.Get("vary"))
+	require.Equal(t, 2, timesOriginHit)
+
+	reqhdrs = http.Header{}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, reqhdrs)
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "origin", resp.Header.Get("vary"))
+	require.Equal(t, 3, timesOriginHit)
+}
+
 func TestCache_item_cached_then_cache_control_max_age_passed(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
