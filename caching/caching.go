@@ -453,10 +453,21 @@ type CacheControlDirectives struct {
 	MaxAge  *int64
 	SMaxAge *int64
 	Private bool
+	vary    []string
 }
 
 func (ccd CacheControlDirectives) DoNotCache() bool {
 	return ccd.Private || ccd.NoStore || (ccd.SMaxAge != nil && *ccd.SMaxAge == 0) || (ccd.MaxAge != nil && *ccd.MaxAge == 0)
+}
+
+func (ccd CacheControlDirectives) VaryByOrigin() bool {
+	for _, v := range ccd.vary {
+		if v == "origin" {
+			return true
+		}
+	}
+
+	return false
 }
 
 func GetCacheControlDirectives(h http.Header) CacheControlDirectives {
@@ -498,6 +509,7 @@ func GetCacheControlDirectives(h http.Header) CacheControlDirectives {
 			}
 		}
 	}
+	dirs.vary = allHeaderValues("vary", h)
 
 	return dirs
 }
