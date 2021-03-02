@@ -56,6 +56,7 @@ type StorageWriter interface {
 	io.ReadSeeker
 	http.Flusher
 	WriteHeader(int, http.Header)
+	ChangeKey(Key) error
 	Abort() error
 	WrittenFile() (*os.File, error)
 }
@@ -358,6 +359,7 @@ func (s *storage) purgeableItemNames(purgeBytes int64) purgeableItems {
 
 type storageWriter struct {
 	key            Key
+	oldKey         *Key
 	path           string
 	invalidated    bool
 	closeFinisher  func(name string, size int64)
@@ -474,6 +476,10 @@ func (sw *storageWriter) Close() error {
 
 	if sw.closeNotifier != nil {
 		*sw.closeNotifier <- sw.key
+		if sw.oldKey != nil {
+			sw.log.Debugf("Had old key", sw.oldKey)
+			*sw.closeNotifier <- *sw.oldKey
+		}
 	}
 
 	return err
@@ -490,6 +496,35 @@ func (sw *storageWriter) WrittenFile() (*os.File, error) {
 	}
 
 	return fd, nil
+}
+
+func (sw *storageWriter) ChangeKey(k Key) error {
+	sw.log.Debugf("1: Gonna change %v to %v\n%v VS. %v\n", sw.key.FsName(), k.FsName(), sw.key, k)
+	newPath := filepath.Join(filepath.Dir(sw.path), k.FsName())
+	exists, err := pathExists(newPath)
+	if err != nil {
+		return err
+	}
+	if !exists {
+		oldExists, err := pathExists(sw.path)
+		if err != nil {
+			return err
+		}
+		if oldExists {
+			err = os.Rename(sw.path, newPath)
+			if err != nil {
+				return err
+			}
+		}
+	}
+
+	sw.path = newPath
+	oldKey := &Key{host: sw.key.host, path: sw.key.path, opaqueOrigin: sw.key.opaqueOrigin,
+		storedHeaders: sw.key.storedHeaders, originalHeaders: sw.key.originalHeaders}
+	sw.oldKey = oldKey
+	sw.key = k
+
+	return nil
 }
 
 func (sw *storageWriter) Abort() error {

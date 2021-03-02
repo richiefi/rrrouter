@@ -323,6 +323,7 @@ type CacheWriter interface {
 	io.WriteCloser
 	http.Flusher
 	WriteHeader(statusCode int, header http.Header)
+	ChangeKey(Key) error
 	Abort() error
 	WrittenFile() (*os.File, error)
 }
@@ -364,6 +365,7 @@ type CachingResponseWriter interface {
 	http.Flusher
 	Abort() error
 	WrittenFile() (*os.File, error)
+	ChangeKey(Key) error
 	GetClientWriter() http.ResponseWriter
 }
 
@@ -414,6 +416,10 @@ func (crw *cachingResponseWriter) Close() error {
 
 func (crw *cachingResponseWriter) WrittenFile() (*os.File, error) {
 	return crw.cacheWriter.WrittenFile()
+}
+
+func (crw *cachingResponseWriter) ChangeKey(k Key) error {
+	return crw.cacheWriter.ChangeKey(k)
 }
 
 func (crw *cachingResponseWriter) GetClientWriter() http.ResponseWriter {
