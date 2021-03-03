@@ -36,13 +36,16 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Methods       []string `json:"methods"`
-	Pattern       string   `json:"pattern"`
-	Destination   string   `json:"destination"`
-	Internal      bool     `json:"internal"`
-	Type          *string  `json:"type"`
-	HostHeader    string   `json:"hostheader"`
-	Recompression bool     `json:"recompression"`
+	Methods         []string `json:"methods"`
+	Pattern         string   `json:"pattern"`
+	Destination     string   `json:"destination"`
+	Internal        bool     `json:"internal"`
+	Type            *string  `json:"type"`
+	HostHeader      string   `json:"hostheader"`
+	Recompression   bool     `json:"recompression"`
+	CacheId         string   `json:"cache"`
+	ForceRevalidate int      `json:"force_revalidate"`
+	Acao            string   `json:"acao"`
 }
 
 type rulesConfig struct {
@@ -91,7 +94,19 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.Recompression {
 			recompression = true
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression)
+		cacheId := ""
+		if len(rsrc.CacheId) > 0 {
+			cacheId = rsrc.CacheId
+		}
+		forceRevalidate := 0
+		if rsrc.ForceRevalidate > 0 {
+			forceRevalidate = rsrc.ForceRevalidate
+		}
+		acao := ""
+		if len(rsrc.Acao) > 0 {
+			acao = rsrc.Acao
+		}
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, acao)
 		if err != nil {
 			return nil, err
 		}

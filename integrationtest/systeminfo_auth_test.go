@@ -26,7 +26,7 @@ func TestSystemInfo_requires_auth(t *testing.T) {
 	router := proxy.NewRouter(rules, sh.Logger, conf)
 
 	smux := http.NewServeMux()
-	server.ConfigureServeMux(smux, conf, router, sh.Logger)
+	server.ConfigureServeMux(smux, conf, router, sh.Logger, nil)
 
 	listener := httptest.NewServer(smux)
 	defer listener.Close()
@@ -48,7 +48,7 @@ func TestSystemInfo_disabled_without_auth(t *testing.T) {
 	router := proxy.NewRouter(rules, sh.Logger, conf)
 
 	smux := http.NewServeMux()
-	server.ConfigureServeMux(smux, conf, router, sh.Logger)
+	server.ConfigureServeMux(smux, conf, router, sh.Logger, nil)
 
 	listener := httptest.NewServer(smux)
 	defer listener.Close()
