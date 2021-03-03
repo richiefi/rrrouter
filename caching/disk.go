@@ -521,7 +521,7 @@ func (sw *storageWriter) ChangeKey(k Key) error {
 
 	sw.path = newPath
 	oldKey := &Key{host: sw.key.host, path: sw.key.path, opaqueOrigin: sw.key.opaqueOrigin,
-		storedHeaders: sw.key.storedHeaders, originalHeaders: sw.key.originalHeaders}
+		storedHeaders: sw.key.storedHeaders.Clone(), originalHeaders: sw.key.originalHeaders.Clone()}
 	sw.oldKey = oldKey
 	sw.key = k
 
