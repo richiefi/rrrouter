@@ -148,6 +148,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					cache.Invalidate(key, logger)
 					writeBodyFunc = writeBody
 					writer = w
+				} else if shouldRedirect(reqres.Response.StatusCode) {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+					cache.Invalidate(key, logger)
+					writeBodyFunc = writeBody
+					writer = w
 				} else {
 					if cr.ShouldRevalidate {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
@@ -619,4 +624,13 @@ func getRange(h http.Header) *requestRange {
 	}
 
 	return &requestRange{start, end}
+}
+
+func shouldRedirect(statusCode int) bool {
+	switch statusCode {
+	case 301, 302, 303, 307, 308:
+		return true
+	}
+
+	return false
 }
