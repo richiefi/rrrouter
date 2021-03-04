@@ -230,12 +230,12 @@ type Key struct {
 func KeysFromRequest(r *http.Request) []Key {
 	keys := make([]Key, 0)
 	if len(r.Header.Get("origin")) > 0 {
-		k := newKey(r.Host, r.URL.Path, false, r.Header, append(keyClientHeaders, "origin"))
+		k := newKey(r.Host, r.URL.RequestURI(), false, r.Header, append(keyClientHeaders, "origin"))
 		keys = append(keys, k)
-		k = newKey(r.Host, r.URL.Path, true, r.Header, keyClientHeaders)
+		k = newKey(r.Host, r.URL.RequestURI(), true, r.Header, keyClientHeaders)
 		keys = append(keys, k)
 	} else {
-		k := newKey(r.Host, r.URL.Path, false, r.Header, keyClientHeaders)
+		k := newKey(r.Host, r.URL.RequestURI(), false, r.Header, keyClientHeaders)
 		keys = append(keys, k)
 	}
 
