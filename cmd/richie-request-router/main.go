@@ -77,7 +77,6 @@ func (s *StartCmd) Run(ctx *cliContext) error {
 		func() time.Time {
 			return time.Now()
 		},
-		nil,
 	)
 	server.Run(&c, router, logger, ca)
 	return nil
