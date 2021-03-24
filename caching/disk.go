@@ -102,7 +102,7 @@ func createStoragePath(path string) {
 }
 
 type accessTime uint32
-type itemName uint32
+type itemName string
 
 type storage struct {
 	id                string
@@ -152,16 +152,14 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan Key) S
 	return &storageWriter{key: key,
 		path:           fp,
 		wasRevalidated: revalidate,
-		closeFinisher: func(nameString string, size int64) {
-			if name, err := strconv.Atoi(nameString); err == nil {
-				s.itemsLock.Lock()
-				s.withAccessTime[itemName(name)] = accessedItem{
-					accessTime:    accessTime(time.Now().Unix() - s.startedAt),
-					sizeKilobytes: uint32(size / 1024),
-				}
-				s.sizeBytes += size
-				s.itemsLock.Unlock()
+		closeFinisher: func(name string, size int64) {
+			s.itemsLock.Lock()
+			s.withAccessTime[itemName(name)] = accessedItem{
+				accessTime:    accessTime(time.Now().Unix() - s.startedAt),
+				sizeKilobytes: uint32(size / 1024),
 			}
+			s.sizeBytes += size
+			s.itemsLock.Unlock()
 		}, now: func() time.Time {
 			return s.now()
 		}, closeNotifier: closeNotifier,
@@ -251,11 +249,7 @@ func (s *storage) readFiles1() ([]string, int) {
 			if fi.IsDir() {
 				continue
 			}
-			name, err := strconv.Atoi(fi.Name())
-			if err != nil {
-				strayFiles = append(strayFiles, fi.Name())
-				continue
-			}
+			name := fi.Name()
 			size := fi.Size()
 			s.sizeBytes += size
 			s.withoutAccessTime[itemName(name)] = item{sizeKilobytes: uint32(size / 1024)}
@@ -307,7 +301,7 @@ func (s *storage) runSizeLimiter() {
 		removedWithAccessTimes := []itemName{}
 		rmFiles := func(ins *[]itemName, removed *[]itemName) {
 			for _, name := range *ins {
-				fsPath := filepath.Join(s.path, strconv.Itoa(int(name)))
+				fsPath := filepath.Join(s.path, string(name))
 				err := os.Remove(fsPath)
 				if err != nil {
 					if os.IsNotExist(err) {

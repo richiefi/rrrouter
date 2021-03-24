@@ -7,7 +7,6 @@ import (
 	"github.com/c2h5oh/datasize"
 	"github.com/richiefi/rrrouter/util"
 	"github.com/richiefi/rrrouter/yamlconfig"
-	"hash/adler32"
 	"io"
 	"net/http"
 	"net/url"
@@ -302,7 +301,7 @@ func (k Key) FsName() string {
 	if k.opaqueOrigin {
 		s += "opaqueOrigin"
 	}
-	return strconv.Itoa(int(adler32.Checksum([]byte(s))))
+	return util.SHA1String([]byte(s))
 }
 
 func (k Key) HasOpaqueOrigin() bool {
