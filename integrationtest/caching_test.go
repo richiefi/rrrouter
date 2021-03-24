@@ -1012,6 +1012,13 @@ func (ts *testStorage) Id() string {
 	return ts.s.Id()
 }
 
+func (ts *testStorage) Update(cfg caching.StorageConfiguration) {
+
+}
+func (ts *testStorage) SetIsReplaced() {
+
+}
+
 func newTestStorage(s caching.Storage, wroteKey func(caching.Key)) caching.Storage {
 	return &testStorage{
 		s:        s,
