@@ -42,7 +42,7 @@ const (
 func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
 	recompression bool, cacheId string, forceRevalidate int, acao string, flattenRedirects bool) (*Rule, error) {
 	lowpat := strings.ToLower(pattern)
-	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://"))
+	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://") || strings.HasPrefix(lowpat, "*://"))
 	inputParts := strings.Split(pattern, "*")
 	finalParts := make([]string, 0, len(inputParts)*3)
 	finalParts = append(finalParts, `(?i)\A`)
