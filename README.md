@@ -150,7 +150,9 @@ rules:
       hostheader: app2.example.com:9000
 ```
 
+## Response header overriding
 
+A rule with `response_headers: ["access-control-allow-origin: *", ...]` has all of its values applied to the response headers. A value is split at the first ":" where the first part forms the key of the header and the remainder is the value.
 
 ## Traffic Copying
 

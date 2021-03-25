@@ -45,7 +45,7 @@ type RuleSource struct {
 	Recompression    bool     `json:"recompression"`
 	CacheId          string   `json:"cache"`
 	ForceRevalidate  int      `json:"force_revalidate"`
-	Acao             string   `json:"acao"`
+	ResponseHeaders  []string `json:"response_headers"`
 	FlattenRedirects bool     `json:"flatten_redirects"`
 }
 
@@ -103,15 +103,23 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.ForceRevalidate > 0 {
 			forceRevalidate = rsrc.ForceRevalidate
 		}
-		acao := ""
-		if len(rsrc.Acao) > 0 {
-			acao = rsrc.Acao
+		responseHeaders := make(map[string]string, 0)
+		if len(rsrc.ResponseHeaders) > 0 {
+			for _, s := range rsrc.ResponseHeaders {
+				splat := strings.SplitN(s, ":", 2)
+				if len(splat) != 2 {
+					continue
+				}
+				k := strings.TrimSpace(splat[0])
+				v := strings.TrimSpace(splat[1])
+				responseHeaders[k] = v
+			}
 		}
 		flattenRedirects := false
 		if rsrc.FlattenRedirects {
 			flattenRedirects = true
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, acao, flattenRedirects)
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects)
 		if err != nil {
 			return nil, err
 		}
