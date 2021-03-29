@@ -5,10 +5,12 @@ import (
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/c2h5oh/datasize"
+	"github.com/richiefi/rrrouter/util"
 	"github.com/richiefi/rrrouter/yamlconfig"
 	"hash/adler32"
 	"io"
 	"net/http"
+	"net/url"
 	"os"
 	"sort"
 	"strconv"
@@ -23,13 +25,21 @@ type Cache interface {
 	Invalidate(Key, *apexlog.Logger)
 }
 
-func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, now func() time.Time, closeNotifier *chan Key) Cache {
+func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, now func() time.Time) Cache {
 	storages := make([]*Storage, 0, len(opts))
 	for _, o := range opts {
 		s := NewDiskStorage(o.Id, o.Path, int64(o.Size), logger, now)
 		storages = append(storages, &s)
 	}
 
+	return newCache(storages, logger, now)
+}
+
+func NewCacheWithStorages(storages []*Storage, logger *apexlog.Logger, now func() time.Time) Cache {
+	return newCache(storages, logger, now)
+}
+
+func newCache(storages []*Storage, logger *apexlog.Logger, now func() time.Time) Cache {
 	if now == nil {
 		now = time.Now
 	}
@@ -40,7 +50,6 @@ func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, no
 		waitingReadersLock: sync.Mutex{},
 		logger:             logger,
 		now:                now,
-		closeNotifier:      closeNotifier,
 	}
 
 	closeNotif := make(chan Key)
@@ -106,18 +115,18 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 		k = notFoundPreferredKey(keys)
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
-		c.logger.Debugf("Checking if %v exists", rk)
+		c.logger.Infof("Checking if %v exists", rk)
 		if _, exists := c.waitingReaders[rk]; exists {
 			wc := make(chan Key)
 			defer c.waitingReadersLock.Unlock()
 			c.waitingReaders[rk] = append(c.waitingReaders[rk], &wc)
-			c.logger.Debugf("Locking for reader: %v", rk)
+			c.logger.Infof("Locking for reader: %v", rk)
 			return CacheResult{NotFoundReader, nil, nil, &wc, CacheMetadata{}, 0, false}, k, nil
 		} else {
 			c.waitingReaders[rk] = make([]*chan Key, 0)
 			defer c.waitingReadersLock.Unlock()
 			writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, false), logctx)
-			c.logger.Debugf("Locking for writer: %v", rk)
+			c.logger.Infof("Locking for writer: %v", rk)
 			return CacheResult{NotFoundWriter, nil, writer, nil, CacheMetadata{}, 0, false}, k, nil
 		}
 	}
@@ -169,10 +178,10 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 
 	if shouldRevalidate {
 		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, true), logctx)
-		return CacheResult{Found, rc, writer, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size}, age, true}, k, nil
+		return CacheResult{Found, rc, writer, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, true}, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size}, age, false}, k, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, false}, k, nil
 }
 
 func (c *cache) HasStorage(id string) bool {
@@ -295,9 +304,10 @@ type StorageConfiguration struct {
 }
 
 type CacheMetadata struct {
-	Header http.Header
-	Status int
-	Size   int64
+	Header        http.Header
+	Status        int
+	Size          int64
+	RedirectedURL string
 }
 
 type CacheResultKind int
@@ -331,6 +341,7 @@ type CacheWriter interface {
 	io.WriteCloser
 	http.Flusher
 	WriteHeader(statusCode int, header http.Header)
+	SetRedirectedURL(redir *url.URL)
 	ChangeKey(Key) error
 	Abort() error
 	WrittenFile() (*os.File, error)
@@ -375,14 +386,16 @@ type CachingResponseWriter interface {
 	WrittenFile() (*os.File, error)
 	ChangeKey(Key) error
 	GetClientWriter() http.ResponseWriter
+	ReadFrom(r io.Reader) (n int64, err error)
+	SetClientWritesDisabled(bool)
+	SetRedirectedURL(*url.URL)
 }
 
 type cachingResponseWriter struct {
-	clientWriter        http.ResponseWriter
-	clientBytesLeft     int64
-	cacheWriter         CacheWriter
-	cacheWriterFinished bool
-	log                 *apexlog.Logger
+	clientWriter         http.ResponseWriter
+	clientWritesDisabled bool
+	cacheWriter          CacheWriter
+	log                  *apexlog.Logger
 }
 
 func (crw *cachingResponseWriter) Header() http.Header {
@@ -394,7 +407,9 @@ func (crw *cachingResponseWriter) Write(ba []byte) (int, error) {
 }
 
 func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
-	crw.clientWriter.WriteHeader(statusCode)
+	if !crw.clientWritesDisabled {
+		crw.clientWriter.WriteHeader(statusCode)
+	}
 	var cleanedHeaders http.Header
 	if statusCode == 206 {
 		statusCode = 200 // We don't write partial content to storage
@@ -405,11 +420,13 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 		}
 
 	}
-	if statusCode == 200 && crw.cacheWriter != nil {
-		if cleanedHeaders != nil {
-			crw.cacheWriter.WriteHeader(statusCode, cleanedHeaders)
-		} else {
-			crw.cacheWriter.WriteHeader(statusCode, crw.clientWriter.Header())
+	if crw.cacheWriter != nil {
+		if statusCode == 200 || util.IsRedirect(statusCode) {
+			if cleanedHeaders != nil {
+				crw.cacheWriter.WriteHeader(statusCode, cleanedHeaders)
+			} else {
+				crw.cacheWriter.WriteHeader(statusCode, crw.clientWriter.Header())
+			}
 		}
 	}
 }
@@ -434,6 +451,14 @@ func (crw *cachingResponseWriter) GetClientWriter() http.ResponseWriter {
 	return crw.clientWriter
 }
 
+func (crw *cachingResponseWriter) SetClientWritesDisabled(disabled bool) {
+	crw.clientWritesDisabled = disabled
+}
+
+func (crw *cachingResponseWriter) SetRedirectedURL(redir *url.URL) {
+	crw.cacheWriter.SetRedirectedURL(redir)
+}
+
 func (crw *cachingResponseWriter) Abort() error {
 	err := crw.cacheWriter.Abort()
 	if err != nil {
@@ -441,6 +466,11 @@ func (crw *cachingResponseWriter) Abort() error {
 	}
 
 	return nil
+}
+
+func (crw *cachingResponseWriter) ReadFrom(r io.Reader) (n int64, err error) {
+	rf, _ := crw.clientWriter.(io.ReaderFrom)
+	return rf.ReadFrom(r)
 }
 
 func NewCachingResponseWriter(w http.ResponseWriter, cw CacheWriter, logctx *apexlog.Logger) CachingResponseWriter {

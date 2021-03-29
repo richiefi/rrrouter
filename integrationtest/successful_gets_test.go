@@ -870,3 +870,48 @@ func TestConnection_redirects_pass_rrrouter_by_default(t *testing.T) {
 		require.Equal(t, status, resp.StatusCode)
 	}
 }
+
+func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:       0,
+		MappingURL: "",
+	}
+
+	type statusLocation struct {
+		status   int
+		location string
+	}
+	sls := []statusLocation{{status: 302, location: "/1st"}, {status: 307, location: "/2nd"}, {status: 200}}
+	var sl statusLocation
+	timesOriginHit := 0
+	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		sl, sls = sls[0], sls[1:]
+		if sl.status != 200 {
+			w.Header().Set("location", sl.location)
+			w.WriteHeader(sl.status)
+			return
+		}
+		w.WriteHeader(200)
+		w.Write([]byte("ab"))
+	}))
+	defer targetServer.Close()
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:         false,
+			FlattenRedirects: true,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	router := proxy.NewRouter(rules, sh.Logger, conf)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": []string{"gzip"}})
+	require.Equal(t, resp.StatusCode, 200)
+	require.Equal(t, timesOriginHit, 3)
+}

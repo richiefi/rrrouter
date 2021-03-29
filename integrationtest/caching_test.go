@@ -15,6 +15,7 @@ import (
 	"net/http/httptest"
 	"net/url"
 	"os"
+	"path/filepath"
 	"sort"
 	"testing"
 	"time"
@@ -81,7 +82,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 				return f, nil
 			})
 		cw, _ := sw.(caching.CacheWriter)
-
+		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
 		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
@@ -113,7 +114,7 @@ func TestCache_query_is_included_in_key(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -253,7 +254,7 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -303,7 +304,7 @@ func TestCache_forced_revalidate_interval(t *testing.T) {
 	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -354,7 +355,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -421,7 +422,7 @@ func TestCache_origin_keyed_by_existence_rather_than_value_if_vary_origin_not_in
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -473,7 +474,7 @@ func TestCache_origin_keyed_by_origin_value_if_vary_origin_in_origin_response(t 
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -537,7 +538,7 @@ func TestCache_item_cached_then_cache_control_max_age_passed(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -585,10 +586,9 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	defer originServer.Close()
 
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
-	//closeChan := make(chan bool)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -598,7 +598,6 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 1, timesOriginHit)
-	//require.Equal(t, true, <-closeChan)
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Minute * 1)
@@ -607,7 +606,6 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
-	//require.Equal(t, true, <-closeChan)
 	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Second * 30)
@@ -638,7 +636,7 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -678,7 +676,7 @@ func TestCache_cache_control_no_store_not_cached(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -718,7 +716,7 @@ func TestCache_cache_control_max_age_0_not_cached(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -758,7 +756,7 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -797,7 +795,7 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	rules := rulesWithCacheId(t, "disk1", originServer, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
-	}, nil)
+	})
 
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
@@ -885,6 +883,85 @@ func TestCache_request_with_range_is_omitted_to_origin_and_client_range_served_f
 	require.Equal(t, "", resp.Header.Get("content-range"))
 }
 
+func TestCache_redirection_steps_cached_individually(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	type statusLocation struct {
+		status   int
+		location string
+	}
+	var listener *httptest.Server
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		var status int
+		location := ""
+		if r.RequestURI == "/asdf" {
+			status = 302
+			location = "/t/redir/subpath1"
+		} else if r.RequestURI == "/t/redir/subpath1" {
+			status = 302
+			location = "/t/redir/subpath2"
+		} else if r.RequestURI == "/t/redir/subpath2" {
+			status = 200
+		}
+		w.Header().Add("cache-control", "max-age=86400")
+		if status != 200 {
+			w.Header().Set("location", listener.URL+location)
+			w.WriteHeader(status)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	writtenKeys := []caching.Key{}
+	storages := []*caching.Storage{}
+	storageDir := t.TempDir()
+	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {
+		writtenKeys = append(writtenKeys, key)
+	})
+	storages = append(storages, &ts)
+
+	rules := rulesWithCacheIdFlattenredirects(t, "disk1", true, originServer, sh)
+	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener = listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, []byte("ab"), body)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, []byte("ab"), body)
+
+	p := filepath.Join(storageDir, writtenKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
+	err := os.Remove(p)
+	require.Nil(t, err)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 4, timesOriginHit)
+	require.Equal(t, []byte("ab"), body)
+}
+
 type entry struct {
 	reader         *os.File
 	headerStatus   caching.CacheMetadata
@@ -916,6 +993,32 @@ func (c *testCache) HasStorage(id string) bool {
 	return true
 }
 
+type testStorage struct {
+	s        caching.Storage
+	wroteKey func(caching.Key)
+}
+
+func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.Key) caching.StorageWriter {
+	return ts.s.GetWriter(k, r, c)
+}
+
+func (ts *testStorage) Get(keys []caching.Key) (*os.File, caching.StorageMetadata, caching.Key, error) {
+	w, sm, key, err := ts.s.Get(keys)
+	ts.wroteKey(key)
+	return w, sm, key, err
+}
+
+func (ts *testStorage) Id() string {
+	return ts.s.Id()
+}
+
+func newTestStorage(s caching.Storage, wroteKey func(caching.Key)) caching.Storage {
+	return &testStorage{
+		s:        s,
+		wroteKey: wroteKey,
+	}
+}
+
 type testStorageWriter struct {
 	caching.StorageWriter
 	write       func(p []byte) (n int, err error)
@@ -941,6 +1044,18 @@ func (sw testStorageWriter) WrittenFile() (*os.File, error) {
 }
 
 func (sw testStorageWriter) Flush() {
+}
+
+func (sw testStorageWriter) SetRedirectedURL(redir *url.URL) {
+
+}
+
+func (sw testStorageWriter) ChangeKey(caching.Key) error {
+	return nil
+}
+
+func (sw testStorageWriter) Abort() error {
+	return nil
 }
 
 func NewTestStorageWriter(write func(p []byte) (n int, err error), close func() error, writeHeader func(int, http.Header), writtenFile func() (*os.File, error)) caching.StorageWriter {
@@ -1015,6 +1130,24 @@ func rulesWithCacheId(t *testing.T, cacheId string, originServer *httptest.Serve
 			Internal:      false,
 			Recompression: false,
 			CacheId:       cacheId,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
+func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedirects bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    false,
+			CacheId:          cacheId,
+			FlattenRedirects: flattenRedirects,
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {

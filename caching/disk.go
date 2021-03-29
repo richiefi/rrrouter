@@ -5,9 +5,11 @@ import (
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/pkg/xattr"
+	"github.com/richiefi/rrrouter/util"
 	"io"
 	"math/rand"
 	"net/http"
+	"net/url"
 	"os"
 	"path/filepath"
 	"sort"
@@ -28,6 +30,7 @@ type StorageMetadata struct {
 	RequestHeader  http.Header
 	ResponseHeader http.Header
 	Status         int
+	RedirectedURL  string
 	Created        int64
 	Revalidated    int64
 	Size           int64
@@ -181,7 +184,7 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 
 		xattrb, err := xattr.FGet(f, metadataXAttrName)
 		if err != nil {
-			s.logger.Errorf("Failed to get metadata from %v\n", fp)
+			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
 			return nil, StorageMetadata{}, key, err
 		}
 
@@ -368,6 +371,7 @@ type storageWriter struct {
 	fd             *os.File
 	writtenStatus  int
 	responseHeader http.Header
+	redirectedURL  *url.URL
 	created        int64
 	writtenSize    int64
 	log            *apexlog.Logger
@@ -385,17 +389,12 @@ func (sw *storageWriter) Read(p []byte) (n int, err error) {
 
 func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 	dirs := GetCacheControlDirectives(h)
-	if s != 200 || dirs.DoNotCache() {
+	if (s != 200 && !util.IsRedirect(s)) || dirs.DoNotCache() {
 		sw.invalidated = true
+		return
 	} else {
 		sw.writtenStatus = s
 		sw.responseHeader = denyHeaders(h, []string{HeaderRrrouterCacheStatus})
-	}
-}
-
-func (sw *storageWriter) Write(p []byte) (n int, err error) {
-	if sw.invalidated {
-		return n, nil
 	}
 
 	if sw.created == 0 {
@@ -404,9 +403,23 @@ func (sw *storageWriter) Write(p []byte) (n int, err error) {
 	if sw.fd == nil {
 		fd, err := os.Create(sw.path)
 		if err != nil {
-			return 0, err
+			exists, _ := pathExists(sw.path)
+			if !exists {
+				panic(fmt.Sprintf("Could not create file at path: %v", sw.path))
+			} else {
+				fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
+				if err != nil {
+					panic(fmt.Sprintf("Can't open existing file for reading and writing: %v", sw.path))
+				}
+			}
 		}
 		sw.fd = fd
+	}
+}
+
+func (sw *storageWriter) Write(p []byte) (n int, err error) {
+	if sw.invalidated {
+		return n, nil
 	}
 
 	nn, err := sw.fd.Write(p)
@@ -451,12 +464,17 @@ func (sw *storageWriter) Close() error {
 	} else {
 		revalidated = 0
 	}
+	var redirectedURL string
+	if sw.redirectedURL != nil {
+		redirectedURL = sw.redirectedURL.String()
+	}
 	sm := StorageMetadata{
 		Host:           sw.key.host,
 		Path:           sw.key.path,
 		RequestHeader:  sw.key.storedHeaders,
 		ResponseHeader: sw.responseHeader,
 		Status:         sw.writtenStatus,
+		RedirectedURL:  redirectedURL,
 		Created:        sw.created,
 		Revalidated:    revalidated,
 		Size:           sw.writtenSize,
@@ -526,6 +544,10 @@ func (sw *storageWriter) ChangeKey(k Key) error {
 	sw.key = k
 
 	return nil
+}
+
+func (sw *storageWriter) SetRedirectedURL(redir *url.URL) {
+	sw.redirectedURL = redir
 }
 
 func (sw *storageWriter) Abort() error {
