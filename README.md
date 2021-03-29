@@ -152,7 +152,12 @@ rules:
 
 ## Response header overriding
 
-A rule with `response_headers: ["access-control-allow-origin: *", ...]` has all of its values applied to the response headers. A value is split at the first ":" where the first part forms the key of the header and the remainder is the value.
+A rule with
+```yaml
+response_headers:
+  access-control-allow-origin: "*"
+```
+applies all keys and their values the response headers. Whitespace is trimmed from both the key and value.
 
 ## Traffic Copying
 

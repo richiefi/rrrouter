@@ -36,17 +36,17 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Methods          []string `json:"methods"`
-	Pattern          string   `json:"pattern"`
-	Destination      string   `json:"destination"`
-	Internal         bool     `json:"internal"`
-	Type             *string  `json:"type"`
-	HostHeader       string   `json:"hostheader"`
-	Recompression    bool     `json:"recompression"`
-	CacheId          string   `json:"cache"`
-	ForceRevalidate  int      `json:"force_revalidate"`
-	ResponseHeaders  []string `json:"response_headers"`
-	FlattenRedirects bool     `json:"flatten_redirects"`
+	Methods          []string          `json:"methods"`
+	Pattern          string            `json:"pattern"`
+	Destination      string            `json:"destination"`
+	Internal         bool              `json:"internal"`
+	Type             *string           `json:"type"`
+	HostHeader       string            `json:"hostheader"`
+	Recompression    bool              `json:"recompression"`
+	CacheId          string            `json:"cache"`
+	ForceRevalidate  int               `json:"force_revalidate"`
+	ResponseHeaders  map[string]string `json:"response_headers"`
+	FlattenRedirects bool              `json:"flatten_redirects"`
 }
 
 type rulesConfig struct {
@@ -105,14 +105,8 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		}
 		responseHeaders := make(map[string]string, 0)
 		if len(rsrc.ResponseHeaders) > 0 {
-			for _, s := range rsrc.ResponseHeaders {
-				splat := strings.SplitN(s, ":", 2)
-				if len(splat) != 2 {
-					continue
-				}
-				k := strings.TrimSpace(splat[0])
-				v := strings.TrimSpace(splat[1])
-				responseHeaders[k] = v
+			for k, v := range rsrc.ResponseHeaders {
+				responseHeaders[strings.TrimSpace(k)] = strings.TrimSpace(v)
 			}
 		}
 		flattenRedirects := false

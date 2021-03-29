@@ -828,7 +828,7 @@ func TestConnection_access_control_allow_origin_override_passed_to_response(t *t
 			Pattern:         "127.0.0.1/t/*",
 			Destination:     fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:        false,
-			ResponseHeaders: []string{"access-control-allow-origin: a,b"},
+			ResponseHeaders: map[string]string{"access-control-allow-origin": "a,b"},
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
@@ -858,7 +858,7 @@ func TestConnection_timing_allow_origin_override_passed_to_response(t *testing.T
 			Pattern:         "127.0.0.1/t/*",
 			Destination:     fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:        false,
-			ResponseHeaders: []string{"timing-allow-origin:a,b"},
+			ResponseHeaders: map[string]string{"timing-allow-origin ": " a,b"},
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
