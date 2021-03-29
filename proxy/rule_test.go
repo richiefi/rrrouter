@@ -107,6 +107,22 @@ func TestRule(t *testing.T) {
 				},
 			},
 		},
+		{
+			pat:         "*://app.example.com/*/exampleapp/*.exampleapp.js",
+			re:          `(?i)\A(.*)://app\.example\.com/(.*)/exampleapp/(.*)\.exampleapp\.js\z`,
+			dest:        "$1://richie-exampleapp.herokuapp.com/$2/exampleapp/$3.exampleapp.js",
+			shouldError: false,
+			rtests: []RuleTest{
+				{
+					input:  "http://app.example.com/ios/exampleapp/100.exampleapp.js",
+					expect: "http://richie-exampleapp.herokuapp.com/ios/exampleapp/100.exampleapp.js",
+				},
+				{
+					input:  "https://app.example.com/ios/exampleapp/100.exampleapp.js",
+					expect: "https://richie-exampleapp.herokuapp.com/ios/exampleapp/100.exampleapp.js",
+				},
+			},
+		},
 	}
 	for _, test := range tests {
 		r, err := NewRule(test.pat, test.dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, "", false)

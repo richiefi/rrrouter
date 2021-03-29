@@ -4,9 +4,12 @@ import (
 	"errors"
 	"fmt"
 	"github.com/richiefi/rrrouter/caching"
+	"github.com/richiefi/rrrouter/util"
 	"io/ioutil"
 	"net/http"
 	"os"
+	"os/signal"
+	"syscall"
 	"time"
 
 	"github.com/alecthomas/kong"
@@ -52,6 +55,10 @@ func main() {
 	ctx.FatalIfErrorf(err)
 }
 
+var gMappingURL string
+var gMappingFile string
+var gMappingChecksum string
+
 // Run starts the server
 func (s *StartCmd) Run(ctx *cliContext) error {
 	c := config.Config(*s)
@@ -78,8 +85,62 @@ func (s *StartCmd) Run(ctx *cliContext) error {
 			return time.Now()
 		},
 	)
+	gMappingURL = s.MappingURL
+	gMappingFile = s.MappingFile
+	gMappingChecksum = util.SHA1String(mappingData)
+	reloadChan := make(chan bool, 1)
+	sigChan := make(chan os.Signal, 1)
+	signal.Notify(sigChan, syscall.SIGHUP)
+	go periodicReloader(reloadChan)
+	go signalReloader(sigChan, reloadChan)
+	go configReloader(reloadChan, router, ca, logger)
+
 	server.Run(&c, router, logger, ca)
+
 	return nil
+}
+
+func configReloader(c chan bool, router proxy.Router, cache caching.Cache, logger *apexlog.Logger) {
+	for {
+		<-c
+		mappingData, err := readMapping(gMappingURL, gMappingFile)
+		if err != nil {
+			logger.Errorf("ConfigReloader: caught error reading mapping. URL: %v / file: %v: %v", gMappingURL, gMappingFile, err)
+			continue
+		}
+		mc := util.SHA1String(mappingData)
+		if gMappingChecksum == mc {
+			continue
+		}
+		rules, err := proxy.ParseRules(mappingData, logger)
+		if err != nil {
+			logger.Errorf("ConfigReloader: caught error parsing rules when refreshing config: %v", err)
+			continue
+		}
+		router.SetRules(rules)
+		cfgs, err := caching.ParseStorageConfigs(mappingData)
+		if err != nil {
+			logger.Errorf("ConfigReloader: caught error parsing storage configs when refreshing config: %v", err)
+			continue
+		}
+		cache.SetStorageConfigs(cfgs)
+		gMappingChecksum = util.SHA1String(mappingData)
+		logger.Infof("ConfigReloader: new settings loaded")
+	}
+}
+
+func periodicReloader(outChan chan bool) {
+	for {
+		time.Sleep(time.Minute * 1)
+		outChan <- true
+	}
+}
+
+func signalReloader(sigChan chan os.Signal, outChan chan bool) {
+	for {
+		<-sigChan
+		outChan <- true
+	}
 }
 
 func (m *checkMappingCmd) Run(ctx *cliContext) error {

@@ -7,7 +7,6 @@ import (
 	"github.com/c2h5oh/datasize"
 	"github.com/richiefi/rrrouter/util"
 	"github.com/richiefi/rrrouter/yamlconfig"
-	"hash/adler32"
 	"io"
 	"net/http"
 	"net/url"
@@ -22,6 +21,7 @@ import (
 type Cache interface {
 	Get(string, int, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
+	SetStorageConfigs([]StorageConfiguration)
 	Invalidate(Key, *apexlog.Logger)
 }
 
@@ -188,6 +188,34 @@ func (c *cache) HasStorage(id string) bool {
 	return c.storageWithCacheId(id) != nil
 }
 
+func (c *cache) SetStorageConfigs(cfgs []StorageConfiguration) {
+	storages := make([]*Storage, 0, len(cfgs))
+	for _, cfg := range cfgs {
+		existing := c.storageWithCacheId(cfg.Id)
+		if existing != nil {
+			(*existing).Update(cfg)
+		} else {
+			s := NewDiskStorage(cfg.Id, cfg.Path, int64(cfg.Size), c.logger, c.now)
+			storages = append(storages, &s)
+		}
+	}
+	if len(storages) == 0 {
+		return
+	}
+	for _, s := range c.storages {
+		found := false
+		for _, newStorage := range storages {
+			if (*newStorage).Id() == (*s).Id() {
+				found = true
+			}
+		}
+		if !found {
+			(*s).SetIsReplaced()
+		}
+	}
+	c.storages = storages
+}
+
 func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 	if c.closeNotifier == nil {
 		return
@@ -273,7 +301,7 @@ func (k Key) FsName() string {
 	if k.opaqueOrigin {
 		s += "opaqueOrigin"
 	}
-	return strconv.Itoa(int(adler32.Checksum([]byte(s))))
+	return util.SHA1String([]byte(s))
 }
 
 func (k Key) HasOpaqueOrigin() bool {

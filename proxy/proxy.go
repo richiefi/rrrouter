@@ -34,6 +34,7 @@ type RequestResult struct {
 type Router interface {
 	RouteRequest(*http.Request, *url.URL) (*RequestResult, error)
 	GetRoutingFlavors(*http.Request) RoutingFlavors
+	SetRules(*Rules)
 }
 
 type RoutingFlavors struct {
@@ -252,6 +253,11 @@ func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
 	}
 
 	return rf
+}
+
+func (r *router) SetRules(rules *Rules) {
+	r.logger.Debugf("Refreshing rules\n")
+	r.rules = rules
 }
 
 type dummyReadCloser struct {

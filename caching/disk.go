@@ -22,6 +22,8 @@ type Storage interface {
 	GetWriter(Key, bool, *chan Key) StorageWriter
 	Get([]Key) (*os.File, StorageMetadata, Key, error)
 	Id() string
+	Update(cfg StorageConfiguration)
+	SetIsReplaced()
 }
 
 type StorageMetadata struct {
@@ -69,16 +71,7 @@ type DiskStorage struct {
 }
 
 func NewDiskStorage(id string, path string, size int64, logger *apexlog.Logger, now func() time.Time) Storage {
-	exists, err := pathExists(path)
-	if err != nil {
-		panic(fmt.Sprintf("Storage can't use path %v: %v", path, err))
-	} else if !exists {
-		err := os.Mkdir(path, 0755)
-		if err != nil {
-			panic(fmt.Sprintf("Could not create storage path %v. Can't continue.", path))
-		}
-	}
-
+	createStoragePath(path)
 	s := &storage{
 		id:                id,
 		path:              path,
@@ -96,8 +89,20 @@ func NewDiskStorage(id string, path string, size int64, logger *apexlog.Logger, 
 	return s
 }
 
+func createStoragePath(path string) {
+	exists, err := pathExists(path)
+	if err != nil {
+		panic(fmt.Sprintf("Storage can't use path %v: %v", path, err))
+	} else if !exists {
+		err := os.Mkdir(path, 0755)
+		if err != nil {
+			panic(fmt.Sprintf("Could not create storage path %v. Can't continue.", path))
+		}
+	}
+}
+
 type accessTime uint32
-type itemName uint32
+type itemName string
 
 type storage struct {
 	id                string
@@ -108,6 +113,7 @@ type storage struct {
 	itemsLock         sync.Mutex
 	withAccessTime    map[itemName]accessedItem
 	withoutAccessTime map[itemName]item
+	isReplaced        bool
 
 	logger *apexlog.Logger
 	now    func() time.Time
@@ -146,16 +152,14 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan Key) S
 	return &storageWriter{key: key,
 		path:           fp,
 		wasRevalidated: revalidate,
-		closeFinisher: func(nameString string, size int64) {
-			if name, err := strconv.Atoi(nameString); err == nil {
-				s.itemsLock.Lock()
-				s.withAccessTime[itemName(name)] = accessedItem{
-					accessTime:    accessTime(time.Now().Unix() - s.startedAt),
-					sizeKilobytes: uint32(size / 1024),
-				}
-				s.sizeBytes += size
-				s.itemsLock.Unlock()
+		closeFinisher: func(name string, size int64) {
+			s.itemsLock.Lock()
+			s.withAccessTime[itemName(name)] = accessedItem{
+				accessTime:    accessTime(time.Now().Unix() - s.startedAt),
+				sizeKilobytes: uint32(size / 1024),
 			}
+			s.sizeBytes += size
+			s.itemsLock.Unlock()
 		}, now: func() time.Time {
 			return s.now()
 		}, closeNotifier: closeNotifier,
@@ -203,6 +207,21 @@ func (s *storage) Id() string {
 	return s.id
 }
 
+func (s *storage) Update(cfg StorageConfiguration) {
+	if s.id != cfg.Id {
+		return
+	}
+	if s.path != cfg.Path {
+		createStoragePath(cfg.Path)
+	}
+	s.path = cfg.Path
+	s.maxSizeBytes = int64(cfg.Size)
+}
+
+func (s *storage) SetIsReplaced() {
+	s.isReplaced = true
+}
+
 func (s *storage) stats() string {
 	return fmt.Sprintf("Storage %v: %v / %v mB (%.1f%%) in use.", s.id, s.sizeBytes/1024/1024, s.maxSizeBytes/1024/1024, float64(s.sizeBytes)/float64(s.maxSizeBytes)*100)
 }
@@ -230,11 +249,7 @@ func (s *storage) readFiles1() ([]string, int) {
 			if fi.IsDir() {
 				continue
 			}
-			name, err := strconv.Atoi(fi.Name())
-			if err != nil {
-				strayFiles = append(strayFiles, fi.Name())
-				continue
-			}
+			name := fi.Name()
 			size := fi.Size()
 			s.sizeBytes += size
 			s.withoutAccessTime[itemName(name)] = item{sizeKilobytes: uint32(size / 1024)}
@@ -265,6 +280,9 @@ func (s *storage) runSizeLimiter() {
 
 	sleepTime := time.Second * 5
 	for {
+		if s.isReplaced {
+			break
+		}
 		purgeable := purgeableItems{}
 		s.itemsLock.Lock()
 		s.logger.Info(s.stats())
@@ -283,7 +301,7 @@ func (s *storage) runSizeLimiter() {
 		removedWithAccessTimes := []itemName{}
 		rmFiles := func(ins *[]itemName, removed *[]itemName) {
 			for _, name := range *ins {
-				fsPath := filepath.Join(s.path, strconv.Itoa(int(name)))
+				fsPath := filepath.Join(s.path, string(name))
 				err := os.Remove(fsPath)
 				if err != nil {
 					if os.IsNotExist(err) {
