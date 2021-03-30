@@ -20,7 +20,7 @@ type Rule struct {
 	hostHeader       HostHeader
 	cacheId          string
 	forceRevalidate  int
-	acao             string
+	responseHeaders  map[string]string
 	flattenRedirects bool
 }
 
@@ -40,7 +40,7 @@ const (
 
 // NewRule builds a new Rule
 func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
-	recompression bool, cacheId string, forceRevalidate int, acao string, flattenRedirects bool) (*Rule, error) {
+	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, flattenRedirects bool) (*Rule, error) {
 	lowpat := strings.ToLower(pattern)
 	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://") || strings.HasPrefix(lowpat, "*://"))
 	inputParts := strings.Split(pattern, "*")
@@ -74,7 +74,7 @@ func NewRule(pattern, destination string, internal bool, methods map[string]bool
 		recompression:    recompression,
 		cacheId:          cacheId,
 		forceRevalidate:  forceRevalidate,
-		acao:             acao,
+		responseHeaders:  responseHeaders,
 		flattenRedirects: flattenRedirects,
 	}
 

@@ -150,7 +150,14 @@ rules:
       hostheader: app2.example.com:9000
 ```
 
+## Response header overriding
 
+A rule with
+```yaml
+response_headers:
+  access-control-allow-origin: "*"
+```
+applies all keys and their values the response headers. Whitespace is trimmed from both the key and value.
 
 ## Traffic Copying
 

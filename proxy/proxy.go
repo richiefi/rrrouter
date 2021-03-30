@@ -245,9 +245,13 @@ func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
 		rf.CacheId = ruleMatchResults.proxyMatch.rule.cacheId
 		rf.ForceRevalidate = ruleMatchResults.proxyMatch.rule.forceRevalidate
 		rf.FlattenRedirects = ruleMatchResults.proxyMatch.rule.flattenRedirects
-		if len(ruleMatchResults.proxyMatch.rule.acao) > 0 {
-			h := http.Header{}
-			h.Add("access-control-allow-origin", ruleMatchResults.proxyMatch.rule.acao)
+		h := http.Header{}
+		if len(ruleMatchResults.proxyMatch.rule.responseHeaders) > 0 {
+			for k, v := range ruleMatchResults.proxyMatch.rule.responseHeaders {
+				h.Set(k, v)
+			}
+		}
+		if len(h) > 0 {
 			rf.ResponseHeaders = h
 		}
 	}

@@ -36,17 +36,17 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Methods          []string `json:"methods"`
-	Pattern          string   `json:"pattern"`
-	Destination      string   `json:"destination"`
-	Internal         bool     `json:"internal"`
-	Type             *string  `json:"type"`
-	HostHeader       string   `json:"hostheader"`
-	Recompression    bool     `json:"recompression"`
-	CacheId          string   `json:"cache"`
-	ForceRevalidate  int      `json:"force_revalidate"`
-	Acao             string   `json:"acao"`
-	FlattenRedirects bool     `json:"flatten_redirects"`
+	Methods          []string          `json:"methods"`
+	Pattern          string            `json:"pattern"`
+	Destination      string            `json:"destination"`
+	Internal         bool              `json:"internal"`
+	Type             *string           `json:"type"`
+	HostHeader       string            `json:"hostheader"`
+	Recompression    bool              `json:"recompression"`
+	CacheId          string            `json:"cache"`
+	ForceRevalidate  int               `json:"force_revalidate"`
+	ResponseHeaders  map[string]string `json:"response_headers"`
+	FlattenRedirects bool              `json:"flatten_redirects"`
 }
 
 type rulesConfig struct {
@@ -103,15 +103,17 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.ForceRevalidate > 0 {
 			forceRevalidate = rsrc.ForceRevalidate
 		}
-		acao := ""
-		if len(rsrc.Acao) > 0 {
-			acao = rsrc.Acao
+		responseHeaders := make(map[string]string, 0)
+		if len(rsrc.ResponseHeaders) > 0 {
+			for k, v := range rsrc.ResponseHeaders {
+				responseHeaders[strings.TrimSpace(k)] = strings.TrimSpace(v)
+			}
 		}
 		flattenRedirects := false
 		if rsrc.FlattenRedirects {
 			flattenRedirects = true
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, acao, flattenRedirects)
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects)
 		if err != nil {
 			return nil, err
 		}
