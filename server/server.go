@@ -78,6 +78,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			keys := caching.KeysFromRequest(r)
 			cr, key, err := cache.Get(rf.CacheId, rf.ForceRevalidate, keys, *w, logger)
 			if err != nil {
+				cache.Invalidate(key, logger)
 				writeError(*w, err)
 				return
 			}
@@ -146,6 +147,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 					reqres, err := router.RouteRequest(r, overrideURL)
 					if err != nil {
+						cache.Invalidate(key, logger)
 						writeError(*w, err)
 						return
 					}
@@ -187,6 +189,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 								if k.HasFullOrigin() {
 									err = cr.Writer.ChangeKey(k)
 									if err != nil {
+										cache.Invalidate(key, logger)
 										writeError(*w, err)
 										return
 									}
@@ -205,6 +208,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
+						cache.Invalidate(key, logger)
 						writeError(*w, err)
 						return
 					}
@@ -234,6 +238,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
 				if err != nil {
+					cache.Invalidate(key, logger)
 					writeError(*w, err)
 				}
 			}
