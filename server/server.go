@@ -417,18 +417,15 @@ func writeBody(reader io.ReadCloser, writer io.Writer, closeWriter bool, errClea
 		writer.(http.Flusher).Flush()
 		if !keepOpen {
 			if closeWriter {
-				if err != nil {
-					if errCleanup != nil {
-						errCleanup()
-					}
-					return err
-				}
 				if _, ok := writer.(io.Closer); ok {
 					err := writer.(io.Closer).Close()
 					if err != nil {
 						logctx.WithField("error", err).Info("Closing writer caused an error")
 						return err
 					}
+				}
+				if err != nil && errCleanup != nil {
+					errCleanup()
 				}
 			}
 			return err
