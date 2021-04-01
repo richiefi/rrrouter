@@ -83,9 +83,9 @@ func (c *cache) readerNotifier() {
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
-			for i, r := range readers {
-				c.logger.Debugf("readerNotifier notifying %v %v", i, r)
-				*r <- k
+			for i, wc := range readers {
+				c.logger.Debugf("readerNotifier notifying %v %v", i, wc)
+				*wc <- k
 			}
 			delete(c.waitingReaders, rk)
 		}
