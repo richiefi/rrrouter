@@ -109,26 +109,11 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 	if err != nil {
 		if !os.IsNotExist(err) {
 			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching key %v\n", (*s).Id(), k.FsName()))
-			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, ShouldRevalidate: false}, k, err
+			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0}, k, err
 		}
-
 		k = notFoundPreferredKey(keys)
-		rk := k.FsName()
-		c.waitingReadersLock.Lock()
-		c.logger.Infof("Checking if %v exists", rk)
-		if _, exists := c.waitingReaders[rk]; exists {
-			wc := make(chan Key)
-			defer c.waitingReadersLock.Unlock()
-			c.waitingReaders[rk] = append(c.waitingReaders[rk], &wc)
-			c.logger.Infof("Locking for reader: %v", rk)
-			return CacheResult{NotFoundReader, nil, nil, &wc, CacheMetadata{}, 0, false}, k, nil
-		} else {
-			c.waitingReaders[rk] = make([]*chan Key, 0)
-			defer c.waitingReadersLock.Unlock()
-			writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, false), logctx)
-			c.logger.Infof("Locking for writer: %v", rk)
-			return CacheResult{NotFoundWriter, nil, writer, nil, CacheMetadata{}, 0, false}, k, nil
-		}
+		cr := c.getReaderOrWriter(cacheId, k, w, false, logctx)
+		return cr, k, nil
 	}
 
 	var age int64
@@ -147,7 +132,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
 			}
 		}
 	}
@@ -177,11 +162,50 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 	}
 
 	if shouldRevalidate {
-		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, true), logctx)
-		return CacheResult{Found, rc, writer, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, true}, k, nil
+		err := rc.Close()
+		if err != nil {
+			logctx.WithError(err).Errorf("Could not close an optimistically opened fd, which then had to be revalidated")
+		}
+
+		cr := c.getReaderOrWriter(cacheId, k, w, true, logctx)
+		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}
+		cr.Age = age
+		return cr, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, false}, k, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age}, k, nil
+}
+
+func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, logctx *apexlog.Logger) CacheResult {
+	rk := k.FsName()
+	c.waitingReadersLock.Lock()
+	c.logger.Debugf("Checking if %v exists", rk)
+	if _, exists := c.waitingReaders[rk]; exists {
+		wc := make(chan Key)
+		defer c.waitingReadersLock.Unlock()
+		c.waitingReaders[rk] = append(c.waitingReaders[rk], &wc)
+		c.logger.Debugf("Locking for reader: %v", rk)
+		var kind CacheResultKind
+		if isRevalidating {
+			kind = RevalidatingReader
+		} else {
+			kind = NotFoundWriter
+		}
+		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0}
+	} else {
+		c.waitingReaders[rk] = make([]*chan Key, 0)
+		defer c.waitingReadersLock.Unlock()
+		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, isRevalidating), logctx)
+		c.logger.Debugf("Locking for writer: %v", rk)
+		var kind CacheResultKind
+		if isRevalidating {
+			kind = RevalidatingWriter
+		} else {
+			kind = NotFoundWriter
+		}
+		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0}
+
+	}
 }
 
 func (c *cache) HasStorage(id string) bool {
@@ -344,16 +368,17 @@ const (
 	Found CacheResultKind = iota
 	NotFoundWriter
 	NotFoundReader
+	RevalidatingWriter
+	RevalidatingReader
 )
 
 type CacheResult struct {
-	Kind             CacheResultKind
-	Reader           *os.File
-	Writer           CachingResponseWriter
-	WaitChan         *chan Key
-	Metadata         CacheMetadata
-	Age              int64
-	ShouldRevalidate bool
+	Kind     CacheResultKind
+	Reader   *os.File
+	Writer   CachingResponseWriter
+	WaitChan *chan Key
+	Metadata CacheMetadata
+	Age      int64
 }
 
 type Writer interface {

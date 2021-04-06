@@ -123,7 +123,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						return
 					}
 
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
+					if cr.Kind == caching.RevalidatingReader || cr.Kind == caching.Found {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+					} else {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
+					}
 					clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 					(*w).WriteHeader(cr.Metadata.Status)
 
@@ -170,7 +174,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeBodyFunc = writeBody
 						writer = *w
 					} else {
-						if cr.ShouldRevalidate {
+						if cr.Kind == caching.RevalidatingWriter {
 							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 						} else {
 							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")

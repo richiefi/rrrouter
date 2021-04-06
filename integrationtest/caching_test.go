@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"sync"
 	"testing"
 	"time"
 
@@ -85,7 +86,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -182,7 +183,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		getCalled += 1
 		if getCalled == 2 {
 			f := tempFile(t, []byte("ab"))
-			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
 		}
 
 		sw := NewTestStorageWriter(
@@ -202,7 +203,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		cw, _ := sw.(caching.CacheWriter)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -962,11 +963,137 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 }
 
+func TestCache_one_writer_two_readers(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		time.Sleep(time.Millisecond * 100)
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte("ab"), body)
+			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	miss := 0
+	hit := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "hit" {
+			hit += 1
+		} else if s == "miss" {
+			miss += 1
+		}
+	}
+	require.Equal(t, 1, miss)
+	require.Equal(t, 2, hit)
+	require.Equal(t, 1, timesOriginHit)
+}
+
+func TestCache_entry_expires_and_is_revalidated_with_multiple_requests_waiting(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		time.Sleep(time.Millisecond * 100)
+		w.Header().Add("cache-control", "max-age=2")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Second * 1)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+
+	require.Equal(t, 1, timesOriginHit)
+
+	now = now.Add(time.Second * 2)
+
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte("ab"), body)
+			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	revalidated := 0
+	hit := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "hit" {
+			hit += 1
+		} else if s == "revalidated" {
+			revalidated += 1
+		}
+	}
+	require.Equal(t, 1, revalidated)
+	require.Equal(t, 2, hit)
+	require.Equal(t, 2, timesOriginHit)
+}
+
 type entry struct {
-	reader         *os.File
-	headerStatus   caching.CacheMetadata
-	age            int
-	mustRevalidate bool
+	reader       *os.File
+	headerStatus caching.CacheMetadata
+	age          int
 }
 
 type testCache struct {
@@ -979,11 +1106,11 @@ type testCache struct {
 
 func (c *testCache) Get(s string, ri int, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 	if s != c.cacheId {
-		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0}, keys[0], nil
 	}
 
 	if e := c.cachedEntry; e != nil {
-		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age), e.mustRevalidate}, keys[0], nil
+		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age)}, keys[0], nil
 	}
 
 	return c.get(s, keys, w, l)
