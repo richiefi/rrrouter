@@ -912,7 +912,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 		status   int
 		location string
 	}
-	sls := []statusLocation{{status: 302, location: "/1st"}, {status: 307, location: "/2nd"}, {status: 200}}
+	sls := []statusLocation{{status: 302, location: "/matches/1st"}, {status: 307, location: "/2nd/does-not-match"}, {status: 200}}
 	var sl statusLocation
 	timesOriginHit := 0
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -930,7 +930,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "127.0.0.1/t/*",
+			Pattern:          "127.0.0.1/t/matches/*",
 			Destination:      fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:         false,
 			FlattenRedirects: true,
@@ -941,7 +941,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 	listener := sh.runProxy(router)
 	defer listener.Close()
 
-	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": []string{"gzip"}})
+	resp := sh.getURLQuery("/t/matches/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": []string{"gzip"}})
 	require.Equal(t, resp.StatusCode, 200)
 	require.Equal(t, timesOriginHit, 3)
 }
