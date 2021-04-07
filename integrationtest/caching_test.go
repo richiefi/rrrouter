@@ -889,10 +889,6 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	now = time.Now()
 	timesOriginHit := 0
 	hdrs = map[string]string{}
-	type statusLocation struct {
-		status   int
-		location string
-	}
 	var listener *httptest.Server
 	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timesOriginHit += 1
