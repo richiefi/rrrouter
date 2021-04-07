@@ -32,7 +32,7 @@ type RequestResult struct {
 
 // Router is the meat of rrrouter
 type Router interface {
-	RouteRequest(*http.Request, *url.URL) (*RequestResult, error)
+	RouteRequest(*http.Request, *url.URL, *Rule) (*RequestResult, error)
 	GetRoutingFlavors(*http.Request) RoutingFlavors
 	SetRules(*Rules)
 }
@@ -42,6 +42,7 @@ type RoutingFlavors struct {
 	ForceRevalidate  int
 	FlattenRedirects bool
 	ResponseHeaders  http.Header
+	Rule             *Rule
 }
 
 type requestPerformer interface {
@@ -114,10 +115,10 @@ func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.C
 	}
 }
 
-func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL) (*RequestResult, error) {
+func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
-	requestsResult, err := r.createOutgoingRequests(req, overrideURL)
+	requestsResult, err := r.createOutgoingRequests(req, overrideURL, fallbackRule)
 	if err != nil {
 		logctx.WithError(err).Error("error creating outgoing request")
 		return nil, err
@@ -254,6 +255,7 @@ func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
 		if len(h) > 0 {
 			rf.ResponseHeaders = h
 		}
+		rf.Rule = ruleMatchResults.proxyMatch.rule
 	}
 
 	return rf
@@ -371,7 +373,7 @@ func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
 	return nil, nil
 }
 
-func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL) (*createRequestsResult, error) {
+func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*createRequestsResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createOutgoingRequest"})
 	fullURL := completeURL(req)
 	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method)
@@ -384,19 +386,31 @@ func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL)
 	recompression := false
 	flattenRedirects := false
 	cacheId := ""
+	var rule *Rule
+	useReqURL := false
 	if urlMatch.rule != nil {
-		recompression = urlMatch.rule.recompression
+		rule = urlMatch.rule
+	} else {
+		rule = fallbackRule
+		useReqURL = true
+	}
+	if rule != nil {
+		recompression = rule.recompression
+		var u *url.URL
 		if overrideURL != nil {
-			mainRequest, err = r.createProxyRequest(req, urlMatch.rule.internal, urlMatch.rule.hostHeader, overrideURL)
-		} else {
-			mainRequest, err = r.createProxyRequest(req, urlMatch.rule.internal, urlMatch.rule.hostHeader, urlMatch.url)
+			u = overrideURL
+		} else if useReqURL {
+			u = req.URL
+		} else if urlMatch != nil {
+			u = urlMatch.url
 		}
+		mainRequest, err = r.createProxyRequest(req, rule.internal, rule.hostHeader, u)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating mainRequest")
 			return nil, err
 		}
-		flattenRedirects = urlMatch.rule.flattenRedirects
-		cacheId = urlMatch.rule.cacheId
+		flattenRedirects = rule.flattenRedirects
+		cacheId = rule.cacheId
 	}
 	var copyRequest *http.Request
 	if urlMatch.copyURL != nil {

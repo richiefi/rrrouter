@@ -51,8 +51,8 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
-		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header)
-		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header) {
+		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors)
+		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
 			if alwaysInclude == nil {
@@ -64,8 +64,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 			}
 			shouldSkip := len(r.Header.Get("authorization")) > 0
-			if len(rf.CacheId) == 0 || shouldSkip || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
-				reqres, err := router.RouteRequest(r, overrideURL)
+			if len(rf.CacheId) == 0 && frf != nil {
+				rf = *frf
+			}
+			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
+				reqres, err := router.RouteRequest(r, overrideURL, nil)
 				if err != nil {
 					writeError(*w, err)
 					return
@@ -119,7 +122,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							writeError(*w, err)
 							return
 						}
-						cachingFunc(w, rr, rr.URL, alwaysInclude)
+						cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
 						return
 					}
 
@@ -137,7 +140,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 					return
 				} else if waited && cr.Reader == nil && shouldSkipIfNotCached {
-					reqres, err := router.RouteRequest(r, overrideURL)
+					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
 						writeError(*w, err)
 						return
@@ -149,7 +152,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						r.Header.Del("range")
 					}
 
-					reqres, err := router.RouteRequest(r, overrideURL)
+					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
 						cache.Invalidate(key, logger)
 						writeError(*w, err)
@@ -186,7 +189,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							rr.RequestURI = reqres.RedirectedURL.RequestURI()
 							cr.Writer.SetClientWritesDisabled(true)
 							cr.Writer.SetRedirectedURL(rr.URL)
-							cachingFunc(w, rr, rr.URL, alwaysInclude)
+							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
 						}
 						if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
 							for _, k := range keys {
@@ -216,7 +219,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, nil)
+					cachingFunc(w, rr, rr.URL, nil, &rf)
 					return
 				}
 
@@ -249,7 +252,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			return
 		}
-		cachingFunc(&ow, or, nil, nil)
+		cachingFunc(&ow, or, nil, nil, nil)
 	}
 }
 
