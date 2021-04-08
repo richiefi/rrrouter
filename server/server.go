@@ -183,6 +183,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 						}
 						if reqres.RedirectedURL != nil {
+							if urlEquals(reqres.RedirectedURL, r.URL) {
+								err = usererror.CreateError(508, "Loop detected")
+								cache.Invalidate(key, logger)
+								writeError(*w, err)
+								return
+							}
 							rr := r.Clone(r.Context())
 							rr.URL = util.RedirectedURL(rr.URL, reqres.RedirectedURL)
 							rr.Host = reqres.RedirectedURL.Host
@@ -254,6 +260,23 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		}
 		cachingFunc(&ow, or, nil, nil, nil)
 	}
+}
+
+func urlEquals(u1 *url.URL, u2 *url.URL) bool {
+	if u1 == nil || u2 == nil {
+		return false
+	}
+
+	return u1.Scheme == u2.Scheme &&
+		u1.Opaque == u2.Opaque &&
+		((u1.User == nil && u2.User == nil) || (u1.User != nil && u1.User.String() == u2.User.String())) &&
+		u1.Host == u2.Host &&
+		u1.Path == u2.Path &&
+		u1.RawPath == u2.RawPath &&
+		u1.ForceQuery == u2.ForceQuery &&
+		u1.RawQuery == u2.RawQuery &&
+		u1.Fragment == u2.Fragment &&
+		u1.RawFragment == u2.RawFragment
 }
 
 func requestWithRedirect(r *http.Request, location string) (*http.Request, error) {
