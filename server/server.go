@@ -470,7 +470,17 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 			return err
 		}
 
-		crw, ok := writer.(caching.CachingResponseWriter)
+		var crw caching.CachingResponseWriter
+		var ok bool
+		crw, ok = writer.(caching.CachingResponseWriter)
+		if !ok {
+			var erw *encodingResponseWriter
+			if erw, ok = writer.(*encodingResponseWriter); ok {
+				if erw.wrappedWriter != nil {
+					crw, ok = erw.wrappedWriter.(caching.CachingResponseWriter)
+				}
+			}
+		}
 		if !ok {
 			panic(fmt.Sprintf("Caching writer missing"))
 		}
