@@ -189,7 +189,12 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 		xattrb, err := xattr.FGet(f, metadataXAttrName)
 		if err != nil {
 			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
-			return nil, StorageMetadata{}, key, err
+			err := os.Remove(fp)
+			if err != nil {
+				s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
+				return nil, StorageMetadata{}, key, err
+			}
+			continue
 		}
 
 		sm, err := decodeStorageMetadata(xattrb)
