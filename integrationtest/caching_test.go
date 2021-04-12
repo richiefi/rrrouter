@@ -890,6 +890,7 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	timesOriginHit := 0
 	hdrs = map[string]string{}
 	var listener *httptest.Server
+	var originServerBaseURL string
 	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timesOriginHit += 1
 		var status int
@@ -905,7 +906,7 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 		}
 		w.Header().Add("cache-control", "max-age=86400")
 		if status != 200 {
-			w.Header().Set("location", listener.URL+location)
+			w.Header().Set("location", originServerBaseURL+location)
 			w.WriteHeader(status)
 			return
 		}
@@ -913,6 +914,7 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 		_, _ = w.Write([]byte("ab"))
 	}))
 	defer originServer.Close()
+	originServerBaseURL = originServer.URL
 
 	writtenKeys := []caching.Key{}
 	storages := []*caching.Storage{}
@@ -965,22 +967,23 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 	timesOriginHit := 0
 	hdrs = map[string]string{}
 	var listener *httptest.Server
+	var originServerBaseURL string
 	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timesOriginHit += 1
 		var status int
 		location := ""
 		if r.RequestURI == "/asdf" {
 			status = 302
-			location = listener.URL + "/t/redir/subpath1"
+			location = "/t/redir/subpath1"
 		} else if r.RequestURI == "/t/redir/subpath1" {
 			status = 302
-			location = listener.URL + "/nomatch/subpath2"
+			location = "/nomatch/subpath2"
 		} else {
 			status = 200
 		}
 		w.Header().Add("cache-control", "max-age=86400")
 		if status != 200 {
-			w.Header().Set("location", location)
+			w.Header().Set("location", originServerBaseURL+location)
 			w.WriteHeader(status)
 			return
 		}
@@ -988,6 +991,7 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 		w.Write([]byte("ab"))
 	}))
 	defer originServer.Close()
+	originServerBaseURL = originServer.URL
 
 	storages := []*caching.Storage{}
 	storageDir := t.TempDir()
@@ -1027,21 +1031,23 @@ func TestCache_recursive_redirects_not_allowed(t *testing.T) {
 	timesOriginHit := 0
 	hdrs = map[string]string{}
 	var listener *httptest.Server
+	var originServerBaseURL string
 	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timesOriginHit += 1
 		status := 0
 		location := ""
 		if timesOriginHit == 1 {
 			status = 302
-			location = listener.URL + "/t/redir/subpath1"
+			location = "/t/redir/subpath1"
 		} else if timesOriginHit == 2 {
 			status = 307
-			location = listener.URL + "/t/redir/subpath1"
+			location = "/t/redir/subpath1"
 		}
-		w.Header().Set("location", location)
+		w.Header().Set("location", originServerBaseURL+location)
 		w.WriteHeader(status)
 	}))
 	defer originServer.Close()
+	originServerBaseURL = originServer.URL
 
 	storages := []*caching.Storage{}
 	storageDir := t.TempDir()
