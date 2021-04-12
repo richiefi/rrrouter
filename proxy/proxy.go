@@ -165,19 +165,24 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 			mainResp, redirectedURL, err = r.follow(requestsResult.mainRequest, bodyData)
 		} else {
 			mainResp, err = r.performRequest(requestsResult.mainRequest, bodyData)
-		}
-		if mainResp != nil {
-			if util.IsRedirect(mainResp.StatusCode) {
-				redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
-				if err != nil {
-					logctx.WithError(err).Errorf("Error parsing redirection")
-					return nil, err
+			if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
+				if requestsResult.flattenRedirects {
+					redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
+					if err != nil {
+						logctx.WithError(err).Errorf("Error parsing redirection")
+						return nil, err
+					}
+				} else {
+					redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
+					if err != nil {
+						logctx.WithError(err).Errorf("Error parsing redirection")
+						return nil, err
+					}
+					redirectedURL.Host = requestsResult.mainRequest.URL.Host
+					redirectedURL.Scheme = requestsResult.mainRequest.URL.Scheme
 				}
-				redirectedURL.Host = requestsResult.mainRequest.URL.Host
-				redirectedURL.Scheme = requestsResult.mainRequest.URL.Scheme
 			}
 		}
-
 		if err != nil {
 			logctx.WithError(err).Error("Error performing main request")
 			return nil, err
