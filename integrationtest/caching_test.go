@@ -916,11 +916,11 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	defer originServer.Close()
 	originServerBaseURL = originServer.URL
 
-	writtenKeys := []caching.Key{}
+	queriedKeys := []caching.Key{}
 	storages := []*caching.Storage{}
 	storageDir := t.TempDir()
 	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {
-		writtenKeys = append(writtenKeys, key)
+		queriedKeys = append(queriedKeys, key)
 	})
 	storages = append(storages, &ts)
 
@@ -948,9 +948,14 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	require.Equal(t, 3, timesOriginHit)
 	require.Equal(t, []byte("ab"), body)
 
-	p := filepath.Join(storageDir, writtenKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
+	for _, k := range queriedKeys {
+		_, err := os.Stat(filepath.Join(storageDir, k.FsName()))
+		require.Nil(t, err)
+	}
+	p := filepath.Join(storageDir, queriedKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
 	err := os.Remove(p)
 	require.Nil(t, err)
+	require.Equal(t, 6, len(queriedKeys))
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
 	defer resp.Body.Close()
@@ -959,6 +964,9 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 4, timesOriginHit)
 	require.Equal(t, []byte("ab"), body)
+
+	require.Equal(t, 9, len(queriedKeys))
+}
 }
 
 func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(t *testing.T) {
@@ -1226,8 +1234,8 @@ func (c *testCache) HasStorage(id string) bool {
 }
 
 type testStorage struct {
-	s        caching.Storage
-	wroteKey func(caching.Key)
+	s           caching.Storage
+	queriedKeys func(caching.Key)
 }
 
 func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.Key) caching.StorageWriter {
@@ -1236,7 +1244,7 @@ func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.Key) cac
 
 func (ts *testStorage) Get(keys []caching.Key) (*os.File, caching.StorageMetadata, caching.Key, error) {
 	w, sm, key, err := ts.s.Get(keys)
-	ts.wroteKey(key)
+	ts.queriedKeys(key)
 	return w, sm, key, err
 }
 
@@ -1251,10 +1259,10 @@ func (ts *testStorage) SetIsReplaced() {
 
 }
 
-func newTestStorage(s caching.Storage, wroteKey func(caching.Key)) caching.Storage {
+func newTestStorage(s caching.Storage, queriedKeys func(caching.Key)) caching.Storage {
 	return &testStorage{
-		s:        s,
-		wroteKey: wroteKey,
+		s:           s,
+		queriedKeys: queriedKeys,
 	}
 }
 
