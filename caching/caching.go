@@ -440,7 +440,8 @@ type CachingResponseWriter interface {
 	ChangeKey(Key) error
 	GetClientWriter() http.ResponseWriter
 	ReadFrom(r io.Reader) (n int64, err error)
-	SetClientWritesDisabled(bool)
+	SetClientWritesDisabled()
+	GetClientWritesDisabled() bool
 	SetRedirectedURL(*url.URL)
 }
 
@@ -504,8 +505,12 @@ func (crw *cachingResponseWriter) GetClientWriter() http.ResponseWriter {
 	return crw.clientWriter
 }
 
-func (crw *cachingResponseWriter) SetClientWritesDisabled(disabled bool) {
-	crw.clientWritesDisabled = disabled
+func (crw *cachingResponseWriter) SetClientWritesDisabled() {
+	crw.clientWritesDisabled = true
+}
+
+func (crw *cachingResponseWriter) GetClientWritesDisabled() bool {
+	return crw.clientWritesDisabled
 }
 
 func (crw *cachingResponseWriter) SetRedirectedURL(redir *url.URL) {

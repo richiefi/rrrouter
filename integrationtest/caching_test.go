@@ -967,6 +967,89 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 
 	require.Equal(t, 9, len(queriedKeys))
 }
+
+func TestCache_redirection_steps_cached_individually_with_recompression(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	var listener *httptest.Server
+	var originServerBaseURL string
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		var status int
+		location := ""
+		if r.RequestURI == "/asdf" {
+			status = 302
+			location = "/t/redir/subpath1"
+		} else if r.RequestURI == "/t/redir/subpath1" {
+			status = 302
+			location = "/t/redir/subpath2"
+		} else if r.RequestURI == "/t/redir/subpath2" {
+			status = 200
+		}
+		w.Header().Add("cache-control", "max-age=86400")
+		if status != 200 {
+			w.Header().Set("location", originServerBaseURL+location)
+			w.WriteHeader(status)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(plainBody))
+	}))
+	defer originServer.Close()
+	originServerBaseURL = originServer.URL
+
+	queriedKeys := []caching.Key{}
+	storages := []*caching.Storage{}
+	storageDir := t.TempDir()
+	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {
+		queriedKeys = append(queriedKeys, key)
+	})
+	storages = append(storages, &ts)
+
+	rules := rulesWithCacheIdFlattenredirectsRecompression(t, "disk1", true, true, originServer, sh)
+	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener = listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, []byte(gzBody), body)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, []byte(gzBody), body)
+
+	for _, k := range queriedKeys {
+		_, err := os.Stat(filepath.Join(storageDir, k.FsName()))
+		require.Nil(t, err)
+	}
+	p := filepath.Join(storageDir, queriedKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
+	err := os.Remove(p)
+	require.Nil(t, err)
+	require.Equal(t, 6, len(queriedKeys))
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 4, timesOriginHit)
+	require.Equal(t, []byte(gzBody), body)
+
+	require.Equal(t, 9, len(queriedKeys))
 }
 
 func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(t *testing.T) {
@@ -1393,6 +1476,24 @@ func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedir
 			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:         false,
 			Recompression:    false,
+			CacheId:          cacheId,
+			FlattenRedirects: flattenRedirects,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
+func rulesWithCacheIdFlattenredirectsRecompression(t *testing.T, cacheId string, flattenRedirects bool, recompression bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    recompression,
 			CacheId:          cacheId,
 			FlattenRedirects: flattenRedirects,
 		},

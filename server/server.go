@@ -194,7 +194,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							rr.URL = util.RedirectedURL(rr.URL, reqres.RedirectedURL)
 							rr.Host = reqres.RedirectedURL.Host
 							rr.RequestURI = reqres.RedirectedURL.RequestURI()
-							cr.Writer.SetClientWritesDisabled(true)
+							cr.Writer.SetClientWritesDisabled()
 							cr.Writer.SetRedirectedURL(rr.URL)
 							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
 						}
@@ -484,6 +484,10 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 		}
 		if !ok {
 			panic(fmt.Sprintf("Caching writer missing"))
+		}
+
+		if crw.GetClientWritesDisabled() {
+			return nil
 		}
 
 		fd, err := crw.WrittenFile()
