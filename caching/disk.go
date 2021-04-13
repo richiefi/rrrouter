@@ -391,6 +391,7 @@ type storageWriter struct {
 	invalidated    bool
 	closeFinisher  func(name string, size int64)
 	closeNotifier  *chan Key
+	closed         bool
 	fd             *os.File
 	writtenStatus  int
 	responseHeader http.Header
@@ -455,6 +456,11 @@ func (sw *storageWriter) Write(p []byte) (n int, err error) {
 }
 
 func (sw *storageWriter) Close() error {
+	if sw.closed == true {
+		sw.log.Warnf("Tried to close an already closed storageWriter: %v", sw.key.FsName())
+		return nil
+	}
+
 	if sw.fd == nil {
 		return nil
 	}
@@ -523,6 +529,8 @@ func (sw *storageWriter) Close() error {
 			*sw.closeNotifier <- *sw.oldKey
 		}
 	}
+
+	sw.closed = true
 
 	return err
 }
