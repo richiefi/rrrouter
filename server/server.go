@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/richiefi/rrrouter/caching"
@@ -323,7 +324,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 
 		if reqres.Recompression.Add != util.CompressionTypeNone {
 			closeWriter = true
-			writer, err = NewEncodingResponseWriter(w, reqres.Recompression.Add, conf)
+			writer, err = NewEncodingResponseWriter(w, reqres.Recompression.Add, conf, logger)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -516,8 +517,10 @@ type EncodingResponseWriter interface {
 }
 
 type encodingResponseWriter struct {
-	wrappedWriter  http.ResponseWriter
-	encodingWriter io.Writer
+	wrappedWriter      http.ResponseWriter
+	closeWrappedWriter bool
+	encodingWriter     io.WriteCloser
+	log                *apexlog.Logger
 }
 
 func (ew *encodingResponseWriter) Header() http.Header {
@@ -539,14 +542,26 @@ func (ew *encodingResponseWriter) Flush() {
 func (ew *encodingResponseWriter) Close() error {
 	err := ew.encodingWriter.(io.Closer).Close()
 	if err != nil {
+		ew.log.Errorf("Closing encodingWriter errored: %v", err)
 		return err
+	}
+
+	if ew.closeWrappedWriter {
+		if v, ok := ew.wrappedWriter.(io.Closer); ok {
+			err = v.Close()
+			if err != nil {
+				ew.log.Errorf("Closing wrappedWriter errored: %v", err)
+				return err
+			}
+		}
 	}
 
 	return nil
 }
 
-func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType, conf *config.Config) (EncodingResponseWriter, error) {
-	var encodingWriter io.Writer
+func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType, conf *config.Config, logctx *apexlog.Logger) (EncodingResponseWriter, error) {
+	var encodingWriter io.WriteCloser
+	closeWrappedWriter := false
 	switch compressionType {
 	case util.CompressionTypeBrotli:
 		encodingWriter = util.NewBrotliEncodingWriter(w, conf.BrotliLevel)
@@ -554,16 +569,19 @@ func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.Compr
 	case util.CompressionTypeGzip:
 		var err error
 		encodingWriter, err = util.NewGzipEncodingWriter(w, conf.GZipLevel)
+		closeWrappedWriter = true
 		if err != nil {
 			return nil, err
 		}
 		break
 	default:
-		encodingWriter = w
+		return nil, errors.New("Encoding must be specified")
 	}
 	return &encodingResponseWriter{
-		wrappedWriter:  w,
-		encodingWriter: encodingWriter,
+		wrappedWriter:      w,
+		closeWrappedWriter: closeWrappedWriter,
+		encodingWriter:     encodingWriter,
+		log:                logctx,
 	}, nil
 }
 
