@@ -448,8 +448,8 @@ func writeBody(reader io.ReadCloser, writer io.Writer, closeWriter bool, errClea
 		writer.(http.Flusher).Flush()
 		if !keepOpen {
 			if closeWriter {
-				if _, ok := writer.(io.Closer); ok {
-					err := writer.(io.Closer).Close()
+				if v, ok := writer.(io.Closer); ok {
+					err := v.Close()
 					if err != nil {
 						logctx.WithField("error", err).Info("Closing writer caused an error")
 						return err
