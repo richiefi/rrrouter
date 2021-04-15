@@ -112,9 +112,12 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0}, k, err
 		}
 		k = notFoundPreferredKey(keys)
+		logctx.Debugf("Miss: %v // %v", k, k.FsName())
 		cr := c.getReaderOrWriter(cacheId, k, w, false, logctx)
 		return cr, k, nil
 	}
+
+	logctx.Debugf("Hit: %v // %v", k, k.FsName())
 
 	var age int64
 	if sm.Revalidated != 0 {
