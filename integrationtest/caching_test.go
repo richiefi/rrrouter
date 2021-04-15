@@ -1094,7 +1094,7 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 		return now
 	})
 
-	listener = listenerWithCache(c, rules, sh.Logger, testConfig())
+	listener, router := listenerAndRouterWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
 
 	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
@@ -1106,13 +1106,29 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 	require.Equal(t, "*", resp.Header.Get("timing-allow-origin"))
 	require.Equal(t, []byte("ab"), body)
 
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    true,
+			CacheId:          "disk1",
+			FlattenRedirects: true,
+			ResponseHeaders:  map[string]string{"timing-allow-origin": "something-else"},
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+	router.SetRules(rules)
+
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 200, resp.StatusCode)
 	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 3, timesOriginHit)
-	require.Equal(t, "*", resp.Header.Get("timing-allow-origin"))
+	require.Equal(t, "something-else", resp.Header.Get("timing-allow-origin"))
 	require.Equal(t, []byte("ab"), body)
 }
 
@@ -1266,6 +1282,98 @@ func TestCache_entry_expires_and_is_revalidated_with_multiple_requests_waiting(t
 			defer resp.Body.Close()
 			body := sh.readBody(resp)
 			require.Equal(t, []byte("ab"), body)
+			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	revalidated := 0
+	hit := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "hit" {
+			hit += 1
+		} else if s == "revalidated" {
+			revalidated += 1
+		}
+	}
+	require.Equal(t, 1, revalidated)
+	require.Equal(t, 2, hit)
+	require.Equal(t, 2, timesOriginHit)
+}
+
+func TestCache_entry_is_revalidated_for_waiting_clients_with_rules_changed(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		time.Sleep(time.Millisecond * 100)
+		w.Header().Add("cache-control", "max-age=2")
+		w.Header().Set("content-type", "application/json")
+		w.Header().Set("content-encoding", "gzip")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(gzBody))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener, router := listenerAndRouterWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Second * 1)
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    true,
+			CacheId:          "disk1",
+			FlattenRedirects: true,
+			ResponseHeaders:  map[string]string{"hello": "ruby"},
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+	router.SetRules(rules)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "ruby", resp.Header.Get("hello"))
+	require.Equal(t, 1, timesOriginHit)
+
+	now = now.Add(time.Second * 2)
+
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte(gzBody), body)
+			require.Equal(t, "ruby", resp.Header.Get("hello"))
 			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
 			wg.Done()
 		}()
@@ -1548,4 +1656,12 @@ func listenerWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.
 	server.ConfigureServeMux(smux, conf, router, logger, cache)
 
 	return httptest.NewServer(smux)
+}
+
+func listenerAndRouterWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.Logger, conf *config.Config) (*httptest.Server, proxy.Router) {
+	router := proxy.NewRouter(rules, logger, conf)
+	smux := http.NewServeMux()
+	server.ConfigureServeMux(smux, conf, router, logger, cache)
+
+	return httptest.NewServer(smux), router
 }

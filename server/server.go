@@ -59,14 +59,15 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if alwaysInclude == nil {
 				alwaysInclude = &http.Header{}
 			}
+			shouldSkip := len(r.Header.Get("authorization")) > 0
+			if len(rf.CacheId) == 0 && frf != nil {
+				fmt.Println("Inheriting routingflavors", *frf)
+				rf = *frf
+			}
 			for hname, hvals := range rf.ResponseHeaders {
 				for _, hval := range hvals {
 					alwaysInclude.Set(hname, hval)
 				}
-			}
-			shouldSkip := len(r.Header.Get("authorization")) > 0
-			if len(rf.CacheId) == 0 && frf != nil {
-				rf = *frf
 			}
 			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 				reqres, err := router.RouteRequest(r, overrideURL, nil)
