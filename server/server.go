@@ -96,7 +96,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			}
 
 			if cr.Metadata.Status == 304 {
-				clearAndCopyHeaders(*w, cr.Metadata.Header, nil)
+				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), nil)
 				(*w).WriteHeader(304)
 				return
 			}
@@ -345,15 +345,18 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			writer = w
 		}
 
+		status := 0
 		if statusOverride != nil {
-			writer.WriteHeader(*statusOverride)
+			status = *statusOverride
 		} else {
-			writer.WriteHeader(reqres.Response.StatusCode)
+			status = reqres.Response.StatusCode
 		}
-
-		if reqres.Response.StatusCode == 304 {
+		if status == 304 {
+			util.AllowHeaders(writer.Header(), headersAllowedIn304)
+			writer.WriteHeader(status)
 			return
 		}
+		writer.WriteHeader(status)
 
 		err = writeBodyFunc(reader, writer, closeWriter || forceCloseWriter, errCleanup, logctx)
 		if err != nil {
@@ -516,6 +519,7 @@ var headerAcceptEncodingKey = "Accept-Encoding"
 var headerContentLengthKey = "Content-Length"
 var headerVaryKey = "Vary"
 var headerAge = "Age"
+var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "expires", "vary"}
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter
