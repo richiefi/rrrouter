@@ -418,7 +418,7 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		return
 	} else {
 		sw.writtenStatus = s
-		sw.responseHeader = denyHeaders(h, []string{HeaderRrrouterCacheStatus})
+		sw.responseHeader = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
 	}
 
 	if sw.created == 0 {

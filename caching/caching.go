@@ -307,7 +307,7 @@ func KeysFromRequest(r *http.Request) []Key {
 }
 
 func newKey(host string, path string, opaqueOrigin bool, originalHeaders http.Header, allowHeaderKeys []string) Key {
-	k := Key{host: host, path: path, opaqueOrigin: opaqueOrigin, storedHeaders: allowHeaders(originalHeaders, allowHeaderKeys), originalHeaders: originalHeaders}
+	k := Key{host: host, path: path, opaqueOrigin: opaqueOrigin, storedHeaders: util.AllowHeaders(originalHeaders, allowHeaderKeys), originalHeaders: originalHeaders}
 	return k
 }
 
@@ -471,7 +471,7 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 	if statusCode == 206 {
 		statusCode = 200 // We don't write partial content to storage
 		cl := contentLengthFromRange(crw.clientWriter.Header().Get("content-range"))
-		cleanedHeaders = denyHeaders(crw.clientWriter.Header(), []string{"content-range"})
+		cleanedHeaders = util.DenyHeaders(crw.clientWriter.Header(), []string{"content-range"})
 		if len(cl) > 0 {
 			cleanedHeaders.Set("content-length", cl)
 		}
@@ -543,48 +543,6 @@ func NewCachingResponseWriter(w http.ResponseWriter, cw CacheWriter, logctx *ape
 }
 
 // Helper functions
-
-func allowHeaders(h http.Header, allowlist []string) http.Header {
-	deleted := []string{}
-	for k, _ := range h {
-		found := false
-		for _, wk := range allowlist {
-			if strings.ToLower(k) == wk {
-				found = true
-				break
-			}
-		}
-		if !found {
-			deleted = append(deleted, k)
-		}
-	}
-	out := h.Clone()
-	for _, k := range deleted {
-		out.Del(k)
-	}
-	return out
-}
-
-func denyHeaders(h http.Header, denylist []string) http.Header {
-	deleted := []string{}
-	for k, _ := range h {
-		found := false
-		for _, wk := range denylist {
-			if strings.ToLower(k) == wk {
-				found = true
-				break
-			}
-		}
-		if found {
-			deleted = append(deleted, k)
-		}
-	}
-	out := h.Clone()
-	for _, k := range deleted {
-		out.Del(k)
-	}
-	return out
-}
 
 func normalizeEtag(s string) string {
 	return strings.TrimLeft("W/", s)
