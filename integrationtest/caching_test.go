@@ -396,7 +396,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	require.Equal(t, "1", resp.Header.Get("etag"))
 	require.Equal(t, 2, timesOriginHit)
 
-	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"2"}})
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"1"}})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 304, resp.StatusCode)

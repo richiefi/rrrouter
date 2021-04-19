@@ -545,7 +545,7 @@ func NewCachingResponseWriter(w http.ResponseWriter, cw CacheWriter, logctx *ape
 // Helper functions
 
 func normalizeEtag(s string) string {
-	return strings.TrimLeft("W/", s)
+	return strings.TrimLeft(s, "W/")
 }
 
 type CacheControlDirectives struct {
