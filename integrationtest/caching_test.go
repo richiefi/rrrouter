@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -265,6 +266,7 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "0", resp.Header.Get("age"))
 	require.Equal(t, 1, timesOriginHit)
 
 	now = now.Add(time.Minute * 1)
@@ -275,13 +277,17 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "0", resp.Header.Get("age"))
 	require.Equal(t, 2, timesOriginHit)
 
+	now = now.Add(time.Second * 2)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	age, _ := strconv.Atoi(resp.Header.Get("age"))
+	require.Greater(t, age, 1)
 	require.Equal(t, 2, timesOriginHit)
 }
 

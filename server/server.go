@@ -184,6 +184,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						} else {
 							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 						}
+						alwaysInclude.Set(headerAge, "0")
 						if reqres.RedirectedURL != nil {
 							if urlEquals(reqres.RedirectedURL, r.URL) {
 								err = usererror.CreateError(508, "Loop detected")
