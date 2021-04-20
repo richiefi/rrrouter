@@ -1,6 +1,7 @@
 package util
 
 import (
+	"net/http"
 	"net/url"
 	"strings"
 )
@@ -56,4 +57,46 @@ func RedirectedURL(orig *url.URL, redir *url.URL) *url.URL {
 		newUrl.RawPath = newUrl.EscapedPath()
 		return newUrl
 	}
+}
+
+func AllowHeaders(h http.Header, allowlist []string) http.Header {
+	deleted := []string{}
+	for k, _ := range h {
+		found := false
+		for _, wk := range allowlist {
+			if strings.ToLower(k) == wk {
+				found = true
+				break
+			}
+		}
+		if !found {
+			deleted = append(deleted, k)
+		}
+	}
+	out := h.Clone()
+	for _, k := range deleted {
+		out.Del(k)
+	}
+	return out
+}
+
+func DenyHeaders(h http.Header, denylist []string) http.Header {
+	deleted := []string{}
+	for k, _ := range h {
+		found := false
+		for _, wk := range denylist {
+			if strings.ToLower(k) == wk {
+				found = true
+				break
+			}
+		}
+		if found {
+			deleted = append(deleted, k)
+		}
+	}
+	out := h.Clone()
+	for _, k := range deleted {
+		out.Del(k)
+	}
+	return out
 }

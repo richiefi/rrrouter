@@ -189,7 +189,12 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 		xattrb, err := xattr.FGet(f, metadataXAttrName)
 		if err != nil {
 			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
-			return nil, StorageMetadata{}, key, err
+			err := os.Remove(fp)
+			if err != nil {
+				s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
+				return nil, StorageMetadata{}, key, err
+			}
+			continue
 		}
 
 		sm, err := decodeStorageMetadata(xattrb)
@@ -386,6 +391,7 @@ type storageWriter struct {
 	invalidated    bool
 	closeFinisher  func(name string, size int64)
 	closeNotifier  *chan Key
+	closed         bool
 	fd             *os.File
 	writtenStatus  int
 	responseHeader http.Header
@@ -412,7 +418,7 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		return
 	} else {
 		sw.writtenStatus = s
-		sw.responseHeader = denyHeaders(h, []string{HeaderRrrouterCacheStatus})
+		sw.responseHeader = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
 	}
 
 	if sw.created == 0 {
@@ -450,6 +456,11 @@ func (sw *storageWriter) Write(p []byte) (n int, err error) {
 }
 
 func (sw *storageWriter) Close() error {
+	if sw.closed == true {
+		sw.log.Warnf("Tried to close an already closed storageWriter: %v", sw.key.FsName())
+		return nil
+	}
+
 	if sw.fd == nil {
 		return nil
 	}
@@ -518,6 +529,8 @@ func (sw *storageWriter) Close() error {
 			*sw.closeNotifier <- *sw.oldKey
 		}
 	}
+
+	sw.closed = true
 
 	return err
 }

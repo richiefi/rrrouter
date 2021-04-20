@@ -16,7 +16,7 @@ import (
 
 const (
 	brBody    = "\x8B\x02\x80\x5B\x22\x4F\x4B\x22\x5D\x03"
-	gzBody    = "\x1F\x8B\x08\x00\xB6\xCD\x97\x5F\x00\x03\x8B\x56\xF2\xF7\x56\x8A\x05\x00\xD0\x64\x5A\x61\x06\x00\x00\x00"
+	gzBody    = "\x1F\x8B\x08\x00\x00\x00\x00\x00\x00\xFF\x8A\x56\xF2\xF7\x56\x8A\x05\x04\x00\x00\xFF\xFF\xD0\x64\x5A\x61\x06\x00\x00\x00"
 	plainBody = "[\"OK\"]"
 )
 
@@ -912,7 +912,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 		status   int
 		location string
 	}
-	sls := []statusLocation{{status: 302, location: "/1st"}, {status: 307, location: "/2nd"}, {status: 200}}
+	sls := []statusLocation{{status: 302, location: "/matches/1st"}, {status: 307, location: "/2nd/does-not-match"}, {status: 200}}
 	var sl statusLocation
 	timesOriginHit := 0
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -930,7 +930,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "127.0.0.1/t/*",
+			Pattern:          "127.0.0.1/t/matches/*",
 			Destination:      fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:         false,
 			FlattenRedirects: true,
@@ -941,7 +941,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 	listener := sh.runProxy(router)
 	defer listener.Close()
 
-	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": []string{"gzip"}})
+	resp := sh.getURLQuery("/t/matches/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": []string{"gzip"}})
 	require.Equal(t, resp.StatusCode, 200)
 	require.Equal(t, timesOriginHit, 3)
 }

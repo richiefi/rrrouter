@@ -3,6 +3,7 @@ package server
 import (
 	"crypto/subtle"
 	"encoding/json"
+	"errors"
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/richiefi/rrrouter/caching"
@@ -51,21 +52,25 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
-		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header)
-		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header) {
+		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors)
+		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
 			if alwaysInclude == nil {
 				alwaysInclude = &http.Header{}
+			}
+			shouldSkip := len(r.Header.Get("authorization")) > 0
+			if len(rf.CacheId) == 0 && frf != nil {
+				fmt.Println("Inheriting routingflavors", *frf)
+				rf = *frf
 			}
 			for hname, hvals := range rf.ResponseHeaders {
 				for _, hval := range hvals {
 					alwaysInclude.Set(hname, hval)
 				}
 			}
-			shouldSkip := len(r.Header.Get("authorization")) > 0
-			if len(rf.CacheId) == 0 || shouldSkip || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
-				reqres, err := router.RouteRequest(r, overrideURL)
+			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
+				reqres, err := router.RouteRequest(r, overrideURL, nil)
 				if err != nil {
 					writeError(*w, err)
 					return
@@ -91,7 +96,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			}
 
 			if cr.Metadata.Status == 304 {
-				clearAndCopyHeaders(*w, cr.Metadata.Header, nil)
+				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), nil)
 				(*w).WriteHeader(304)
 				return
 			}
@@ -119,7 +124,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							writeError(*w, err)
 							return
 						}
-						cachingFunc(w, rr, rr.URL, alwaysInclude)
+						cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
 						return
 					}
 
@@ -137,7 +142,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 					return
 				} else if waited && cr.Reader == nil && shouldSkipIfNotCached {
-					reqres, err := router.RouteRequest(r, overrideURL)
+					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
 						writeError(*w, err)
 						return
@@ -149,7 +154,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						r.Header.Del("range")
 					}
 
-					reqres, err := router.RouteRequest(r, overrideURL)
+					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
 						cache.Invalidate(key, logger)
 						writeError(*w, err)
@@ -179,14 +184,24 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						} else {
 							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 						}
+						alwaysInclude.Set(headerAge, "0")
 						if reqres.RedirectedURL != nil {
-							rr := r.Clone(r.Context())
-							rr.URL = util.RedirectedURL(rr.URL, reqres.RedirectedURL)
-							rr.Host = reqres.RedirectedURL.Host
-							rr.RequestURI = reqres.RedirectedURL.RequestURI()
-							cr.Writer.SetClientWritesDisabled(true)
-							cr.Writer.SetRedirectedURL(rr.URL)
-							cachingFunc(w, rr, rr.URL, alwaysInclude)
+							if urlEquals(reqres.RedirectedURL, r.URL) {
+								err = usererror.CreateError(508, "Loop detected")
+								cache.Invalidate(key, logger)
+								writeError(*w, err)
+								return
+							}
+							redirectedUrl := util.RedirectedURL(r.URL, reqres.RedirectedURL)
+							cr.Writer.SetRedirectedURL(redirectedUrl)
+							if rf.FlattenRedirects {
+								rr := r.Clone(r.Context())
+								rr.URL = redirectedUrl
+								rr.Host = reqres.RedirectedURL.Host
+								rr.RequestURI = reqres.RedirectedURL.RequestURI()
+								cr.Writer.SetClientWritesDisabled()
+								cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+							}
 						}
 						if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
 							for _, k := range keys {
@@ -216,7 +231,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, nil)
+					cachingFunc(w, rr, rr.URL, nil, &rf)
 					return
 				}
 
@@ -249,8 +264,25 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			return
 		}
-		cachingFunc(&ow, or, nil, nil)
+		cachingFunc(&ow, or, nil, nil, nil)
 	}
+}
+
+func urlEquals(u1 *url.URL, u2 *url.URL) bool {
+	if u1 == nil || u2 == nil {
+		return false
+	}
+
+	return u1.Scheme == u2.Scheme &&
+		u1.Opaque == u2.Opaque &&
+		((u1.User == nil && u2.User == nil) || (u1.User != nil && u1.User.String() == u2.User.String())) &&
+		u1.Host == u2.Host &&
+		u1.Path == u2.Path &&
+		u1.RawPath == u2.RawPath &&
+		u1.ForceQuery == u2.ForceQuery &&
+		u1.RawQuery == u2.RawQuery &&
+		u1.Fragment == u2.Fragment &&
+		u1.RawFragment == u2.RawFragment
 }
 
 func requestWithRedirect(r *http.Request, location string) (*http.Request, error) {
@@ -297,7 +329,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 
 		if reqres.Recompression.Add != util.CompressionTypeNone {
 			closeWriter = true
-			writer, err = NewEncodingResponseWriter(w, reqres.Recompression.Add, conf)
+			writer, err = NewEncodingResponseWriter(w, reqres.Recompression.Add, conf, logger)
 			if err != nil {
 				writeError(w, err)
 				return
@@ -316,15 +348,18 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			writer = w
 		}
 
+		status := 0
 		if statusOverride != nil {
-			writer.WriteHeader(*statusOverride)
+			status = *statusOverride
 		} else {
-			writer.WriteHeader(reqres.Response.StatusCode)
+			status = reqres.Response.StatusCode
 		}
-
-		if reqres.Response.StatusCode == 304 {
+		if status == 304 {
+			util.AllowHeaders(writer.Header(), headersAllowedIn304)
+			writer.WriteHeader(status)
 			return
 		}
+		writer.WriteHeader(status)
 
 		err = writeBodyFunc(reader, writer, closeWriter || forceCloseWriter, errCleanup, logctx)
 		if err != nil {
@@ -421,8 +456,8 @@ func writeBody(reader io.ReadCloser, writer io.Writer, closeWriter bool, errClea
 		writer.(http.Flusher).Flush()
 		if !keepOpen {
 			if closeWriter {
-				if _, ok := writer.(io.Closer); ok {
-					err := writer.(io.Closer).Close()
+				if v, ok := writer.(io.Closer); ok {
+					err := v.Close()
 					if err != nil {
 						logctx.WithField("error", err).Info("Closing writer caused an error")
 						return err
@@ -444,9 +479,23 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 			return err
 		}
 
-		crw, ok := writer.(caching.CachingResponseWriter)
+		var crw caching.CachingResponseWriter
+		var ok bool
+		crw, ok = writer.(caching.CachingResponseWriter)
+		if !ok {
+			var erw *encodingResponseWriter
+			if erw, ok = writer.(*encodingResponseWriter); ok {
+				if erw.wrappedWriter != nil {
+					crw, ok = erw.wrappedWriter.(caching.CachingResponseWriter)
+				}
+			}
+		}
 		if !ok {
 			panic(fmt.Sprintf("Caching writer missing"))
+		}
+
+		if crw.GetClientWritesDisabled() {
+			return nil
 		}
 
 		fd, err := crw.WrittenFile()
@@ -473,6 +522,7 @@ var headerAcceptEncodingKey = "Accept-Encoding"
 var headerContentLengthKey = "Content-Length"
 var headerVaryKey = "Vary"
 var headerAge = "Age"
+var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "expires", "vary", "richie-edge-cache"}
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter
@@ -480,8 +530,10 @@ type EncodingResponseWriter interface {
 }
 
 type encodingResponseWriter struct {
-	wrappedWriter  http.ResponseWriter
-	encodingWriter io.Writer
+	wrappedWriter      http.ResponseWriter
+	closeWrappedWriter bool
+	encodingWriter     io.WriteCloser
+	log                *apexlog.Logger
 }
 
 func (ew *encodingResponseWriter) Header() http.Header {
@@ -503,14 +555,26 @@ func (ew *encodingResponseWriter) Flush() {
 func (ew *encodingResponseWriter) Close() error {
 	err := ew.encodingWriter.(io.Closer).Close()
 	if err != nil {
+		ew.log.Errorf("Closing encodingWriter errored: %v", err)
 		return err
+	}
+
+	if ew.closeWrappedWriter {
+		if v, ok := ew.wrappedWriter.(io.Closer); ok {
+			err = v.Close()
+			if err != nil {
+				ew.log.Errorf("Closing wrappedWriter errored: %v", err)
+				return err
+			}
+		}
 	}
 
 	return nil
 }
 
-func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType, conf *config.Config) (EncodingResponseWriter, error) {
-	var encodingWriter io.Writer
+func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.CompressionType, conf *config.Config, logctx *apexlog.Logger) (EncodingResponseWriter, error) {
+	var encodingWriter io.WriteCloser
+	closeWrappedWriter := false
 	switch compressionType {
 	case util.CompressionTypeBrotli:
 		encodingWriter = util.NewBrotliEncodingWriter(w, conf.BrotliLevel)
@@ -518,16 +582,19 @@ func NewEncodingResponseWriter(w http.ResponseWriter, compressionType util.Compr
 	case util.CompressionTypeGzip:
 		var err error
 		encodingWriter, err = util.NewGzipEncodingWriter(w, conf.GZipLevel)
+		closeWrappedWriter = true
 		if err != nil {
 			return nil, err
 		}
 		break
 	default:
-		encodingWriter = w
+		return nil, errors.New("Encoding must be specified")
 	}
 	return &encodingResponseWriter{
-		wrappedWriter:  w,
-		encodingWriter: encodingWriter,
+		wrappedWriter:      w,
+		closeWrappedWriter: closeWrappedWriter,
+		encodingWriter:     encodingWriter,
+		log:                logctx,
 	}, nil
 }
 

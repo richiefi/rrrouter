@@ -17,6 +17,7 @@ import (
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
 	"sync"
 	"testing"
 	"time"
@@ -265,6 +266,7 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	body := sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "0", resp.Header.Get("age"))
 	require.Equal(t, 1, timesOriginHit)
 
 	now = now.Add(time.Minute * 1)
@@ -275,13 +277,17 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "0", resp.Header.Get("age"))
 	require.Equal(t, 2, timesOriginHit)
 
+	now = now.Add(time.Second * 2)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	age, _ := strconv.Atoi(resp.Header.Get("age"))
+	require.Greater(t, age, 1)
 	require.Equal(t, 2, timesOriginHit)
 }
 
@@ -390,7 +396,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	require.Equal(t, "1", resp.Header.Get("etag"))
 	require.Equal(t, 2, timesOriginHit)
 
-	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"2"}})
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"1"}})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
 	require.Equal(t, 304, resp.StatusCode)
@@ -889,11 +895,8 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	now = time.Now()
 	timesOriginHit := 0
 	hdrs = map[string]string{}
-	type statusLocation struct {
-		status   int
-		location string
-	}
 	var listener *httptest.Server
+	var originServerBaseURL string
 	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timesOriginHit += 1
 		var status int
@@ -909,7 +912,7 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 		}
 		w.Header().Add("cache-control", "max-age=86400")
 		if status != 200 {
-			w.Header().Set("location", listener.URL+location)
+			w.Header().Set("location", originServerBaseURL+location)
 			w.WriteHeader(status)
 			return
 		}
@@ -917,12 +920,13 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 		_, _ = w.Write([]byte("ab"))
 	}))
 	defer originServer.Close()
+	originServerBaseURL = originServer.URL
 
-	writtenKeys := []caching.Key{}
+	queriedKeys := []caching.Key{}
 	storages := []*caching.Storage{}
 	storageDir := t.TempDir()
 	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {
-		writtenKeys = append(writtenKeys, key)
+		queriedKeys = append(queriedKeys, key)
 	})
 	storages = append(storages, &ts)
 
@@ -950,9 +954,14 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	require.Equal(t, 3, timesOriginHit)
 	require.Equal(t, []byte("ab"), body)
 
-	p := filepath.Join(storageDir, writtenKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
+	for _, k := range queriedKeys {
+		_, err := os.Stat(filepath.Join(storageDir, k.FsName()))
+		require.Nil(t, err)
+	}
+	p := filepath.Join(storageDir, queriedKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
 	err := os.Remove(p)
 	require.Nil(t, err)
+	require.Equal(t, 6, len(queriedKeys))
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
 	defer resp.Body.Close()
@@ -961,6 +970,215 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 4, timesOriginHit)
 	require.Equal(t, []byte("ab"), body)
+
+	require.Equal(t, 9, len(queriedKeys))
+}
+
+func TestCache_redirection_steps_cached_individually_with_recompression(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	var listener *httptest.Server
+	var originServerBaseURL string
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		var status int
+		location := ""
+		if r.RequestURI == "/asdf" {
+			status = 302
+			location = "/t/redir/subpath1"
+		} else if r.RequestURI == "/t/redir/subpath1" {
+			status = 302
+			location = "/t/redir/subpath2"
+		} else if r.RequestURI == "/t/redir/subpath2" {
+			status = 200
+		}
+		w.Header().Add("cache-control", "max-age=86400")
+		if status != 200 {
+			w.Header().Set("location", originServerBaseURL+location)
+			w.WriteHeader(status)
+			return
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(plainBody))
+	}))
+	defer originServer.Close()
+	originServerBaseURL = originServer.URL
+
+	queriedKeys := []caching.Key{}
+	storages := []*caching.Storage{}
+	storageDir := t.TempDir()
+	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {
+		queriedKeys = append(queriedKeys, key)
+	})
+	storages = append(storages, &ts)
+
+	rules := rulesWithCacheIdFlattenredirectsRecompression(t, "disk1", true, true, originServer, sh)
+	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener = listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, []byte(gzBody), body)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, []byte(gzBody), body)
+
+	for _, k := range queriedKeys {
+		_, err := os.Stat(filepath.Join(storageDir, k.FsName()))
+		require.Nil(t, err)
+	}
+	p := filepath.Join(storageDir, queriedKeys[4].FsName()) // Key at index 4 is /t/redir/subpath1
+	err := os.Remove(p)
+	require.Nil(t, err)
+	require.Equal(t, 6, len(queriedKeys))
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 4, timesOriginHit)
+	require.Equal(t, []byte(gzBody), body)
+
+	require.Equal(t, 9, len(queriedKeys))
+}
+
+func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	var listener *httptest.Server
+	var originServerBaseURL string
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		var status int
+		location := ""
+		if r.RequestURI == "/asdf" {
+			status = 302
+			location = "/t/redir/subpath1"
+		} else if r.RequestURI == "/t/redir/subpath1" {
+			status = 302
+			location = "/nomatch/subpath2"
+		} else {
+			status = 200
+		}
+		w.Header().Add("cache-control", "max-age=86400")
+		if status != 200 {
+			w.Header().Set("location", originServerBaseURL+location)
+			w.WriteHeader(status)
+			return
+		}
+		w.WriteHeader(200)
+		w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+	originServerBaseURL = originServer.URL
+
+	storages := []*caching.Storage{}
+	storageDir := t.TempDir()
+	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {})
+	storages = append(storages, &ts)
+
+	rules := rulesWithCacheIdFlattenredirectsResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
+	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener, router := listenerAndRouterWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, "*", resp.Header.Get("timing-allow-origin"))
+	require.Equal(t, []byte("ab"), body)
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    true,
+			CacheId:          "disk1",
+			FlattenRedirects: true,
+			ResponseHeaders:  map[string]string{"timing-allow-origin": "something-else"},
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+	router.SetRules(rules)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, "something-else", resp.Header.Get("timing-allow-origin"))
+	require.Equal(t, []byte("ab"), body)
+}
+
+func TestCache_recursive_redirects_not_allowed(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	var listener *httptest.Server
+	var originServerBaseURL string
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		status := 0
+		location := ""
+		if timesOriginHit == 1 {
+			status = 302
+			location = "/t/redir/subpath1"
+		} else if timesOriginHit == 2 {
+			status = 307
+			location = "/t/redir/subpath1"
+		}
+		w.Header().Set("location", originServerBaseURL+location)
+		w.WriteHeader(status)
+	}))
+	defer originServer.Close()
+	originServerBaseURL = originServer.URL
+
+	storages := []*caching.Storage{}
+	storageDir := t.TempDir()
+	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {})
+	storages = append(storages, &ts)
+
+	rules := rulesWithCacheIdFlattenredirectsResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
+	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener = listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	require.Equal(t, 508, resp.StatusCode)
+	require.Equal(t, 2, timesOriginHit)
 }
 
 func TestCache_one_writer_two_readers(t *testing.T) {
@@ -1090,6 +1308,98 @@ func TestCache_entry_expires_and_is_revalidated_with_multiple_requests_waiting(t
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_entry_is_revalidated_for_waiting_clients_with_rules_changed(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		time.Sleep(time.Millisecond * 100)
+		w.Header().Add("cache-control", "max-age=2")
+		w.Header().Set("content-type", "application/json")
+		w.Header().Set("content-encoding", "gzip")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(gzBody))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener, router := listenerAndRouterWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Second * 1)
+
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    true,
+			CacheId:          "disk1",
+			FlattenRedirects: true,
+			ResponseHeaders:  map[string]string{"hello": "ruby"},
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+	router.SetRules(rules)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, []byte(gzBody), body)
+	require.Equal(t, "ruby", resp.Header.Get("hello"))
+	require.Equal(t, 1, timesOriginHit)
+
+	now = now.Add(time.Second * 2)
+
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte(gzBody), body)
+			require.Equal(t, "ruby", resp.Header.Get("hello"))
+			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
+			wg.Done()
+		}()
+	}
+	wg.Wait()
+	revalidated := 0
+	hit := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "hit" {
+			hit += 1
+		} else if s == "revalidated" {
+			revalidated += 1
+		}
+	}
+	require.Equal(t, 1, revalidated)
+	require.Equal(t, 2, hit)
+	require.Equal(t, 2, timesOriginHit)
+}
+
 type entry struct {
 	reader       *os.File
 	headerStatus caching.CacheMetadata
@@ -1121,8 +1431,8 @@ func (c *testCache) HasStorage(id string) bool {
 }
 
 type testStorage struct {
-	s        caching.Storage
-	wroteKey func(caching.Key)
+	s           caching.Storage
+	queriedKeys func(caching.Key)
 }
 
 func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.Key) caching.StorageWriter {
@@ -1131,7 +1441,7 @@ func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.Key) cac
 
 func (ts *testStorage) Get(keys []caching.Key) (*os.File, caching.StorageMetadata, caching.Key, error) {
 	w, sm, key, err := ts.s.Get(keys)
-	ts.wroteKey(key)
+	ts.queriedKeys(key)
 	return w, sm, key, err
 }
 
@@ -1146,10 +1456,10 @@ func (ts *testStorage) SetIsReplaced() {
 
 }
 
-func newTestStorage(s caching.Storage, wroteKey func(caching.Key)) caching.Storage {
+func newTestStorage(s caching.Storage, queriedKeys func(caching.Key)) caching.Storage {
 	return &testStorage{
-		s:        s,
-		wroteKey: wroteKey,
+		s:           s,
+		queriedKeys: queriedKeys,
 	}
 }
 
@@ -1291,6 +1601,43 @@ func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedir
 	return rules
 }
 
+func rulesWithCacheIdFlattenredirectsRecompression(t *testing.T, cacheId string, flattenRedirects bool, recompression bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    recompression,
+			CacheId:          cacheId,
+			FlattenRedirects: flattenRedirects,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
+func rulesWithCacheIdFlattenredirectsResponseHeaders(t *testing.T, cacheId string, flattenRedirects bool, responseHeaders map[string]string, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:          "127.0.0.1/t/*",
+			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:         false,
+			Recompression:    false,
+			CacheId:          cacheId,
+			FlattenRedirects: flattenRedirects,
+			ResponseHeaders:  responseHeaders,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
 func rulesWithCacheIdRevalidate(t *testing.T, cacheId string, forceRevalidate int, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
@@ -1315,4 +1662,12 @@ func listenerWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.
 	server.ConfigureServeMux(smux, conf, router, logger, cache)
 
 	return httptest.NewServer(smux)
+}
+
+func listenerAndRouterWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.Logger, conf *config.Config) (*httptest.Server, proxy.Router) {
+	router := proxy.NewRouter(rules, logger, conf)
+	smux := http.NewServeMux()
+	server.ConfigureServeMux(smux, conf, router, logger, cache)
+
+	return httptest.NewServer(smux), router
 }
