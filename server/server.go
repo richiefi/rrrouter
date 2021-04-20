@@ -522,7 +522,7 @@ var headerAcceptEncodingKey = "Accept-Encoding"
 var headerContentLengthKey = "Content-Length"
 var headerVaryKey = "Vary"
 var headerAge = "Age"
-var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "expires", "vary"}
+var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "expires", "vary", "richie-edge-cache"}
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter
