@@ -192,13 +192,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 								writeError(*w, err)
 								return
 							}
-							rr := r.Clone(r.Context())
-							rr.URL = util.RedirectedURL(rr.URL, reqres.RedirectedURL)
-							rr.Host = reqres.RedirectedURL.Host
-							rr.RequestURI = reqres.RedirectedURL.RequestURI()
-							cr.Writer.SetClientWritesDisabled()
-							cr.Writer.SetRedirectedURL(rr.URL)
-							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+							redirectedUrl := util.RedirectedURL(r.URL, reqres.RedirectedURL)
+							cr.Writer.SetRedirectedURL(redirectedUrl)
+							if rf.FlattenRedirects {
+								rr := r.Clone(r.Context())
+								rr.URL = redirectedUrl
+								rr.Host = reqres.RedirectedURL.Host
+								rr.RequestURI = reqres.RedirectedURL.RequestURI()
+								cr.Writer.SetClientWritesDisabled()
+								cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+							}
 						}
 						if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
 							for _, k := range keys {

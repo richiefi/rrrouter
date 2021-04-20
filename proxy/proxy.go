@@ -166,20 +166,10 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 		} else {
 			mainResp, err = r.performRequest(requestsResult.mainRequest, bodyData)
 			if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
-				if requestsResult.flattenRedirects {
-					redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
-					if err != nil {
-						logctx.WithError(err).Errorf("Error parsing redirection")
-						return nil, err
-					}
-				} else {
-					redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
-					if err != nil {
-						logctx.WithError(err).Errorf("Error parsing redirection")
-						return nil, err
-					}
-					redirectedURL.Host = requestsResult.mainRequest.URL.Host
-					redirectedURL.Scheme = requestsResult.mainRequest.URL.Scheme
+				redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
+				if err != nil {
+					logctx.WithError(err).Errorf("Error parsing redirection")
+					return nil, err
 				}
 			}
 		}
