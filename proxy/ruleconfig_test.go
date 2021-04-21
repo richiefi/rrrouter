@@ -236,3 +236,25 @@ func TestConfigParse_rule_match_has_a_string_representation(t *testing.T) {
 
 	require.True(t, len(ruleMatchResults.String()) > 0)
 }
+
+func TestConfigParse_rule_order_is_preserved_and_first_match_used(t *testing.T) {
+	src := `{"rules": [
+        {
+            "pattern": "api.example.com/foo/*",
+            "destination": "http://example.com/v1/$1"
+        },
+        {
+            "pattern": "api.example.com/foo/*",
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        ]
+    }`
+	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
+	require.Nil(t, err)
+
+	ruleMatchResults, err := rules.Match("https://api.example.com/foo/zap/fnord", "HEAD")
+	require.Nil(t, err)
+	require.NotNil(t, ruleMatchResults)
+
+	require.Equal(t, "http://example.com/v1/zap/fnord", ruleMatchResults.proxyMatch.target)
+}
