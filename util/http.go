@@ -15,47 +15,55 @@ func IsRedirect(statusCode int) bool {
 	return false
 }
 
-func RedirectedURL(orig *url.URL, redir *url.URL) *url.URL {
+func RedirectedURL(orig *http.Request, redir *url.URL) *url.URL {
 	if len(redir.Scheme) > 0 {
 		return redir
-	} else if strings.Index(redir.Path, "/") == 0 {
-		newUrl := &url.URL{
-			Scheme:      orig.Scheme,
-			Opaque:      orig.Opaque,
-			User:        orig.User,
-			Host:        orig.Host,
-			Path:        redir.Path,
-			RawPath:     redir.RawPath,
-			ForceQuery:  redir.ForceQuery,
-			RawQuery:    redir.RawQuery,
-			Fragment:    redir.Fragment,
-			RawFragment: redir.RawFragment,
-		}
-		return newUrl
 	} else {
-		splitBy := func(c rune) bool {
-			return c == '/'
-		}
-		origSplat := strings.FieldsFunc(orig.Path, splitBy)
-		var newPath string
-		if len(origSplat) > 1 {
-			newPath = "/" + strings.Join(origSplat[:len(origSplat)-1], "/") + redir.Path
+		var host string
+		if len(orig.Host) > 0 {
+			host = orig.Host
 		} else {
-			newPath = "/" + redir.Path
+			host = orig.URL.Host
 		}
-		newUrl := &url.URL{
-			Scheme:      orig.Scheme,
-			Opaque:      orig.Opaque,
-			User:        orig.User,
-			Host:        orig.Host,
-			Path:        newPath,
-			ForceQuery:  redir.ForceQuery,
-			RawQuery:    redir.RawQuery,
-			Fragment:    redir.Fragment,
-			RawFragment: redir.RawFragment,
+		if strings.Index(redir.Path, "/") == 0 {
+			newUrl := &url.URL{
+				Scheme:      orig.URL.Scheme,
+				Opaque:      orig.URL.Opaque,
+				User:        orig.URL.User,
+				Host:        host,
+				Path:        redir.Path,
+				RawPath:     redir.RawPath,
+				ForceQuery:  redir.ForceQuery,
+				RawQuery:    redir.RawQuery,
+				Fragment:    redir.Fragment,
+				RawFragment: redir.RawFragment,
+			}
+			return newUrl
+		} else {
+			splitBy := func(c rune) bool {
+				return c == '/'
+			}
+			origSplat := strings.FieldsFunc(orig.URL.Path, splitBy)
+			var newPath string
+			if len(origSplat) > 1 {
+				newPath = "/" + strings.Join(origSplat[:len(origSplat)-1], "/") + redir.Path
+			} else {
+				newPath = "/" + redir.Path
+			}
+			newUrl := &url.URL{
+				Scheme:      orig.URL.Scheme,
+				Opaque:      orig.URL.Opaque,
+				User:        orig.URL.User,
+				Host:        host,
+				Path:        newPath,
+				ForceQuery:  redir.ForceQuery,
+				RawQuery:    redir.RawQuery,
+				Fragment:    redir.Fragment,
+				RawFragment: redir.RawFragment,
+			}
+			newUrl.RawPath = newUrl.EscapedPath()
+			return newUrl
 		}
-		newUrl.RawPath = newUrl.EscapedPath()
-		return newUrl
 	}
 }
 
