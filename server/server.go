@@ -192,12 +192,13 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 								writeError(*w, err)
 								return
 							}
-							redirectedUrl := util.RedirectedURL(r.URL, reqres.RedirectedURL)
+							redirectedUrl := util.RedirectedURL(r, reqres.RedirectedURL)
+							redirectedUrl.Scheme = reqres.OriginalURL.Scheme
 							cr.Writer.SetRedirectedURL(redirectedUrl)
 							if rf.FlattenRedirects {
 								rr := r.Clone(r.Context())
 								rr.URL = redirectedUrl
-								rr.Host = reqres.RedirectedURL.Host
+								rr.Host = redirectedUrl.Host
 								rr.RequestURI = reqres.RedirectedURL.RequestURI()
 								cr.Writer.SetClientWritesDisabled()
 								cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
@@ -291,7 +292,7 @@ func requestWithRedirect(r *http.Request, location string) (*http.Request, error
 		return nil, err
 	}
 	rr := r.Clone(r.Context())
-	rr.URL = util.RedirectedURL(rr.URL, locationUrl)
+	rr.URL = util.RedirectedURL(rr, locationUrl)
 	rr.Host = rr.URL.Host
 	return rr, nil
 }

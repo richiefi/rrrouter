@@ -1076,6 +1076,8 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 			status = 302
 			location = "/nomatch/subpath2"
 		} else {
+			u, _ := url.Parse(originServerBaseURL)
+			require.Equal(t, u.Host, r.Host)
 			status = 200
 		}
 		w.Header().Add("cache-control", "max-age=86400")

@@ -27,6 +27,7 @@ const (
 type RequestResult struct {
 	Response      *http.Response
 	Recompression util.Recompression
+	OriginalURL   *url.URL
 	RedirectedURL *url.URL
 }
 
@@ -190,6 +191,7 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 	return &RequestResult{
 		Response:      mainResp,
 		Recompression: recompression,
+		OriginalURL:   requestsResult.mainRequest.URL,
 		RedirectedURL: redirectedURL,
 	}, nil
 }
@@ -211,7 +213,7 @@ func (r *router) follow(req *http.Request, requestData []byte) (*http.Response, 
 				return nil, nil, err
 			}
 
-			req.URL = util.RedirectedURL(req.URL, redirectedURL)
+			req.URL = util.RedirectedURL(req, redirectedURL)
 			requestData = nil
 		} else {
 			return resp, redirectedURL, err
