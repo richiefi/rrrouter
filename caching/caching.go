@@ -475,7 +475,6 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 		if len(cl) > 0 {
 			cleanedHeaders.Set("content-length", cl)
 		}
-
 	}
 	if crw.cacheWriter != nil {
 		if statusCode == 200 || util.IsRedirect(statusCode) {
