@@ -477,7 +477,7 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 		}
 	}
 	if crw.cacheWriter != nil {
-		if statusCode == 200 || util.IsRedirect(statusCode) {
+		if statusCode == 200 || IsCacheableError(statusCode) || util.IsRedirect(statusCode) {
 			if cleanedHeaders != nil {
 				crw.cacheWriter.WriteHeader(statusCode, cleanedHeaders)
 			} else {
@@ -637,4 +637,8 @@ func contentLengthFromRange(s string) string {
 	}
 
 	return splat[1]
+}
+
+func IsCacheableError(statusCode int) bool {
+	return statusCode >= 399 && statusCode <= 404
 }
