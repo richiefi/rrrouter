@@ -9,8 +9,6 @@ FROM debian:buster
 RUN apt-get update && apt-get install -y --no-install-recommends ca-certificates
 RUN update-ca-certificates
 COPY --from=0 /go/bin/richie-request-router .
-RUN useradd -s /bin/false rrrouter
-USER rrrouter
 ENTRYPOINT ["./richie-request-router"]
 CMD ["start"]
 
