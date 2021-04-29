@@ -119,7 +119,25 @@ func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.C
 func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
-	requestsResult, err := r.createOutgoingRequests(req, overrideURL, fallbackRule)
+	urlMatch, err := r.createUrlMatch(req, nil, logctx)
+	if err != nil {
+		return nil, err
+	}
+	return r.routeRequest(urlMatch, req, overrideURL, fallbackRule, logctx)
+}
+
+func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx *apexlog.Entry) (*urlMatch, error) {
+	fullURL := completeURL(req)
+	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method, overrideRules)
+	if err != nil {
+		logctx.WithError(err).Error("Error creating urlMatch")
+		return nil, err
+	}
+	return urlMatch, nil
+}
+
+func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) (*RequestResult, error) {
+	requestsResult, err := r.createOutgoingRequests(urlMatch, req, overrideURL, fallbackRule)
 	if err != nil {
 		logctx.WithError(err).Error("error creating outgoing request")
 		return nil, err
@@ -127,6 +145,7 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 
 	twoTargets := requestsResult.copyRequest != nil && requestsResult.mainRequest != nil
 	canRetry := retryable(req)
+	retryRule := requestsResult.retryRule
 
 	var bodyData []byte
 	if twoTargets || canRetry {
@@ -147,9 +166,9 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 	if requestsResult.copyRequest != nil {
 		var copyResp *http.Response
 		if requestsResult.flattenRedirects && len(requestsResult.cacheId) == 0 {
-			copyResp, _, err = r.follow(requestsResult.copyRequest, bodyData)
+			copyResp, _, err = r.follow(requestsResult.copyRequest, bodyData, retryRule == nil)
 		} else {
-			copyResp, err = r.performRequest(requestsResult.copyRequest, bodyData)
+			copyResp, err = r.performRequest(requestsResult.copyRequest, bodyData, retryRule == nil)
 		}
 		if err != nil {
 			logctx.WithError(err).Error("Error performing copy request")
@@ -163,9 +182,9 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 	var redirectedURL *url.URL
 	if requestsResult.mainRequest != nil {
 		if requestsResult.flattenRedirects && len(requestsResult.cacheId) == 0 {
-			mainResp, redirectedURL, err = r.follow(requestsResult.mainRequest, bodyData)
+			mainResp, redirectedURL, err = r.follow(requestsResult.mainRequest, bodyData, retryRule == nil)
 		} else {
-			mainResp, err = r.performRequest(requestsResult.mainRequest, bodyData)
+			mainResp, err = r.performRequest(requestsResult.mainRequest, bodyData, retryRule == nil)
 			if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
 				redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
 				if err != nil {
@@ -174,7 +193,17 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 				}
 			}
 		}
-		if err != nil {
+		if (retryRule != nil && err != nil) || (retryRule != nil && mainResp != nil && is4xxError(mainResp.StatusCode)) {
+			overrideRules := &Rules{
+				rules:  []*Rule{requestsResult.retryRule},
+				logger: nil,
+			}
+			urlMatch, err := r.createUrlMatch(req, overrideRules, logctx)
+			if err != nil {
+				return nil, err
+			}
+			return r.routeRequest(urlMatch, req, nil, nil, logctx)
+		} else if err != nil {
 			logctx.WithError(err).Error("Error performing main request")
 			return nil, err
 		}
@@ -196,12 +225,12 @@ func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackR
 	}, nil
 }
 
-func (r *router) follow(req *http.Request, requestData []byte) (*http.Response, *url.URL, error) {
+func (r *router) follow(req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, *url.URL, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.follow"})
 
 	var redirectedURL *url.URL
 	for redirections := 0; redirections < 15; redirections += 1 {
-		resp, err := r.performRequest(req, requestData)
+		resp, err := r.performRequest(req, requestData, retryAllowed)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -291,14 +320,14 @@ func setContentLength(req *http.Request) error {
 	return nil
 }
 
-func (r *router) performRequest(req *http.Request, requestData []byte) (*http.Response, error) {
+func (r *router) performRequest(req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.performRequest"})
 	logctx.Debug("Enter")
 
 	var err error
 	var resp *http.Response
 
-	if retryable(req) {
+	if retryable(req) && retryAllowed {
 		sleepTimes := make([]time.Duration, len(r.config.RetryTimes)+1)
 		for i, rt := range r.config.RetryTimes {
 			sleepTimes[i+1] = time.Millisecond * time.Duration(rt)
@@ -355,11 +384,12 @@ type createRequestsResult struct {
 	recompression    bool
 	flattenRedirects bool
 	cacheId          string
+	retryRule        *Rule
 }
 
 func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
 	fullURL := completeURL(req)
-	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method)
+	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method, nil)
 	if err != nil {
 		return nil, err
 	}
@@ -370,20 +400,16 @@ func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
 	return nil, nil
 }
 
-func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*createRequestsResult, error) {
+func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*createRequestsResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createOutgoingRequest"})
-	fullURL := completeURL(req)
-	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method)
-	if err != nil {
-		logctx.WithError(err).Error("Error creating urlMatch")
-		return nil, err
-	}
 	var mainRequest *http.Request
+	var err error
 	logctx.WithFields(apexlog.Fields{"urlMatch.rule": urlMatch.rule, "urlMatch.copyURL": urlMatch.copyURL}).Debug("Got url match")
 	recompression := false
 	flattenRedirects := false
 	cacheId := ""
 	var rule *Rule
+	var retryRule *Rule
 	useReqURL := false
 	if urlMatch.rule != nil {
 		rule = urlMatch.rule
@@ -398,7 +424,7 @@ func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL,
 			u = overrideURL
 		} else if useReqURL {
 			u = req.URL
-		} else if urlMatch != nil {
+		} else {
 			u = urlMatch.url
 		}
 		mainRequest, err = r.createProxyRequest(req, rule.internal, rule.hostHeader, u)
@@ -408,6 +434,7 @@ func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL,
 		}
 		flattenRedirects = rule.flattenRedirects
 		cacheId = rule.cacheId
+		retryRule = rule.retryRule
 	}
 	var copyRequest *http.Request
 	if urlMatch.copyURL != nil {
@@ -423,6 +450,7 @@ func (r *router) createOutgoingRequests(req *http.Request, overrideURL *url.URL,
 		recompression:    recompression,
 		flattenRedirects: flattenRedirects,
 		cacheId:          cacheId,
+		retryRule:        retryRule,
 	}, err
 }
 
@@ -532,13 +560,20 @@ type urlMatch struct {
 	copyRule *Rule
 }
 
-func (r *router) createOutgoingURLs(sourceURL *url.URL, method string) (*urlMatch, error) {
+func (r *router) createOutgoingURLs(sourceURL *url.URL, method string, overrideRules *Rules) (*urlMatch, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createOutgoingURL", "sourceURL": sourceURL})
 	logctx.Debug("Enter")
 	reqdst := destinationString(sourceURL)
 	logctx = logctx.WithFields(apexlog.Fields{"reqdst": reqdst, "method": method})
 	logctx.Debug("Got reqdst")
-	ruleMatchResults, err := r.rules.Match(reqdst, method)
+	var ruleMatchResults *RuleMatchResults
+	var err error
+	if overrideRules != nil {
+		ruleMatchResults, err = overrideRules.Match(reqdst, method)
+	} else {
+		ruleMatchResults, err = r.rules.Match(reqdst, method)
+	}
+
 	if err != nil {
 		logctx.WithError(err).Error("Error matching request to rules")
 		return nil, err
@@ -594,4 +629,8 @@ func destinationString(u *url.URL) string {
 	u2.Host = util.DropPort(u2.Host)
 	u2.RawQuery = ""
 	return u2.String()
+}
+
+func is4xxError(s int) bool {
+	return s >= 399 && s <= 499
 }
