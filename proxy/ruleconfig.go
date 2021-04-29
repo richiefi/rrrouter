@@ -47,6 +47,7 @@ type RuleSource struct {
 	ForceRevalidate  int               `json:"force_revalidate"`
 	ResponseHeaders  map[string]string `json:"response_headers"`
 	FlattenRedirects bool              `json:"flatten_redirects"`
+	RetryRule        *RuleSource       `json:"retry_rule"`
 }
 
 type rulesConfig struct {
@@ -113,7 +114,17 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.FlattenRedirects {
 			flattenRedirects = true
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects)
+		var retryRule *Rule
+		if rsrc.RetryRule != nil {
+			rRules, err := NewRules([]RuleSource{(*rsrc.RetryRule)}, logger)
+			if err != nil {
+				return nil, err
+			}
+			if len(rRules.rules) > 0 {
+				retryRule = rRules.rules[0]
+			}
+		}
+		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
 		if err != nil {
 			return nil, err
 		}

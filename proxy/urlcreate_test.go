@@ -42,7 +42,7 @@ func TestTargetURL(t *testing.T) {
 		logger: logger,
 	}
 	for _, test := range tests {
-		res, err := router.createOutgoingURLs(test.source, "GET")
+		res, err := router.createOutgoingURLs(test.source, "GET", nil)
 		require.Nil(t, err)
 		require.Equal(t, res.url, test.expect)
 	}
@@ -57,7 +57,7 @@ func uparse(s string) *url.URL {
 }
 
 func createRule(pat, dest string) *Rule {
-	r, err := NewRule(pat, dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false)
+	r, err := NewRule(pat, dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
 	if err != nil {
 		panic(err)
 	}
