@@ -64,16 +64,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				fmt.Println("Inheriting routingflavors", *frf)
 				rf = *frf
 			}
-			for hname, hvals := range rf.ResponseHeaders {
-				for _, hval := range hvals {
-					alwaysInclude.Set(hname, hval)
-				}
-			}
 			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 				reqres, err := router.RouteRequest(r, overrideURL, nil)
 				if err != nil {
 					writeError(*w, err)
 					return
+				}
+				for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
+					for _, hval := range hvals {
+						alwaysInclude.Set(hname, hval)
+					}
 				}
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
 				requestHandler(reqres, logger, conf)(*w, r, *alwaysInclude, nil, writeBody, false, nil)
@@ -101,6 +101,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			}
 
+			for hname, hvals := range rf.ResponseHeaders {
+				for _, hval := range hvals {
+					alwaysInclude.Set(hname, hval)
+				}
+			}
 			if cr.Writer != nil || cr.WaitChan != nil {
 				waited := false
 				if cr.WaitChan != nil {
@@ -147,18 +152,28 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
+					for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
+						for _, hval := range hvals {
+							alwaysInclude.Set(hname, hval)
+						}
+					}
 					requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil, writeBody, false, nil)
 					return
 				} else {
 					if rRange != nil {
 						r.Header.Del("range")
 					}
-
 					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
 						cache.Invalidate(key, logger)
 						writeError(*w, err)
 						return
+					}
+					rf = reqres.FinalRoutingFlavors
+					for hname, hvals := range rf.ResponseHeaders {
+						for _, hval := range hvals {
+							alwaysInclude.Set(hname, hval)
+						}
 					}
 
 					var statusOverride *int

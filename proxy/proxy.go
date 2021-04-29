@@ -7,6 +7,7 @@ import (
 	"net"
 	"net/http"
 	"net/url"
+	"sort"
 	"strings"
 	"time"
 
@@ -25,10 +26,11 @@ const (
 )
 
 type RequestResult struct {
-	Response      *http.Response
-	Recompression util.Recompression
-	OriginalURL   *url.URL
-	RedirectedURL *url.URL
+	Response            *http.Response
+	Recompression       util.Recompression
+	OriginalURL         *url.URL
+	RedirectedURL       *url.URL
+	FinalRoutingFlavors RoutingFlavors
 }
 
 // Router is the meat of rrrouter
@@ -44,6 +46,32 @@ type RoutingFlavors struct {
 	FlattenRedirects bool
 	ResponseHeaders  http.Header
 	Rule             *Rule
+}
+
+func headersEqual(h1 http.Header, h2 http.Header) bool {
+	if len(h1) != len(h2) {
+		return false
+	}
+	keys := []string{}
+	for k, _ := range h1 {
+		keys = append(keys, k)
+	}
+	for _, k := range keys {
+		vv1 := h1.Values(k)
+		sort.Strings(vv1)
+		vv2 := h2.Values(k)
+		sort.Strings(vv2)
+		if len(vv1) != len(vv2) {
+			return false
+		}
+		for i := range vv1 {
+			if vv1[i] != vv2[i] {
+				return false
+			}
+		}
+	}
+
+	return true
 }
 
 type requestPerformer interface {
@@ -218,10 +246,11 @@ func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL
 	}
 
 	return &RequestResult{
-		Response:      mainResp,
-		Recompression: recompression,
-		OriginalURL:   requestsResult.mainRequest.URL,
-		RedirectedURL: redirectedURL,
+		Response:            mainResp,
+		Recompression:       recompression,
+		OriginalURL:         requestsResult.mainRequest.URL,
+		RedirectedURL:       redirectedURL,
+		FinalRoutingFlavors: r.getRoutingFlavors(requestsResult.rule),
 	}, nil
 }
 
@@ -262,29 +291,48 @@ func canTransform(cc string) bool {
 }
 
 func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
-	reqdst := destinationString(completeURL(req))
-	ruleMatchResults, err := r.rules.Match(reqdst, req.Method)
 	rf := RoutingFlavors{}
+	ruleMatchResults, err := r.createRuleMatchResults(req, nil)
 	if err != nil {
 		return rf
 	}
 	if ruleMatchResults.proxyMatch != nil && ruleMatchResults.proxyMatch.rule != nil {
-		rf.CacheId = ruleMatchResults.proxyMatch.rule.cacheId
-		rf.ForceRevalidate = ruleMatchResults.proxyMatch.rule.forceRevalidate
-		rf.FlattenRedirects = ruleMatchResults.proxyMatch.rule.flattenRedirects
-		h := http.Header{}
-		if len(ruleMatchResults.proxyMatch.rule.responseHeaders) > 0 {
-			for k, v := range ruleMatchResults.proxyMatch.rule.responseHeaders {
-				h.Set(k, v)
-			}
-		}
-		if len(h) > 0 {
-			rf.ResponseHeaders = h
-		}
-		rf.Rule = ruleMatchResults.proxyMatch.rule
+		return r.getRoutingFlavors(ruleMatchResults.proxyMatch.rule)
+	} else {
+		return rf
 	}
+}
+
+func (r *router) getRoutingFlavors(rule *Rule) RoutingFlavors {
+	rf := RoutingFlavors{}
+	rf.CacheId = rule.cacheId
+	rf.ForceRevalidate = rule.forceRevalidate
+	rf.FlattenRedirects = rule.flattenRedirects
+	h := http.Header{}
+	if len(rule.responseHeaders) > 0 {
+		for k, v := range rule.responseHeaders {
+			h.Set(k, v)
+		}
+	}
+	if len(h) > 0 {
+		rf.ResponseHeaders = h
+	}
+	rf.Rule = rule
 
 	return rf
+}
+
+func (r *router) createRuleMatchResults(req *http.Request, overrideRules *Rules) (*RuleMatchResults, error) {
+	reqdst := destinationString(completeURL(req))
+	var ruleMatchResults *RuleMatchResults
+	var err error
+	if overrideRules != nil {
+		ruleMatchResults, err = overrideRules.Match(reqdst, req.Method)
+	} else {
+		ruleMatchResults, err = r.rules.Match(reqdst, req.Method)
+	}
+
+	return ruleMatchResults, err
 }
 
 func (r *router) SetRules(rules *Rules) {
@@ -384,6 +432,7 @@ type createRequestsResult struct {
 	recompression    bool
 	flattenRedirects bool
 	cacheId          string
+	rule             *Rule
 	retryRule        *Rule
 }
 
@@ -451,6 +500,7 @@ func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, o
 		flattenRedirects: flattenRedirects,
 		cacheId:          cacheId,
 		retryRule:        retryRule,
+		rule:             rule,
 	}, err
 }
 

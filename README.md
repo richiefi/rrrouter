@@ -139,6 +139,10 @@ rules:
       recompression: true
 ```
 
+## Retries to a different URL
+
+A rule can include `retry_rule`, which is another rule to try right after a first try with the parent rule should fail with any server or client error. All fields except `cache` are used in the `retry_rule` where applicable. 
+
 ## Host header
 
 A rule with `hostheader: original` will use what the incoming request used. `hostheader: destination` will use the rule destination's host and port, which is the default. An override, `hostheader: app2.example.com:9000` is used as-is.
