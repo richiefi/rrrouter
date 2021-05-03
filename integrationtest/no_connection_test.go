@@ -75,6 +75,50 @@ func TestNoConnection_retries_with_sleeps(t *testing.T) {
 	}
 }
 
+func TestNoConnection_rules_with_retry_rule_short_circuit_retries_to_retry_rule_until_exhausted(t *testing.T) {
+	sh := setup(t)
+	conf := &config.Config{
+		Port:       0,
+		MappingURL: "",
+		RetryTimes: []int{10, 80, 160, 240},
+	}
+	retryRuleSource := proxy.RuleSource{
+		Pattern:     "127.0.0.1/t/*",
+		Destination: "http://127.0.0.1:13243/retries/go/here",
+	}
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Pattern:     "127.0.0.1/t/*",
+			Destination: "http://127.0.0.1:13243/$1",
+			RetryRule:   &retryRuleSource,
+		},
+	}, sh.Logger)
+	require.Nil(t, err)
+	trp := &TimingRequestPerformer{}
+	router := proxy.NewRouterWithPerformer(rules, sh.Logger, conf, trp)
+	listener := sh.runProxy(router)
+	defer listener.Close()
+
+	resp := sh.getURL("/t/asdf", listener.URL)
+	defer resp.Body.Close()
+
+	require.Equal(t, len(conf.RetryTimes)+2, len(trp.callTimes)) // Two initial requests, one original, one retry and retries for the retry rule request
+	durs := trp.durations()
+	t.Log("Call times:", trp.callTimes)
+	t.Log("Sleep durations:", durs)
+	require.Equal(t, durs[0], time.Millisecond*0)
+	for i, rt := range conf.RetryTimes {
+		require.True(t, absdur(durs[i+1]-time.Millisecond*time.Duration(rt)) < time.Millisecond*100)
+	}
+	for i, req := range trp.callRequests {
+		if i == 0 {
+			require.Equal(t, "/asdf", req.URL.Path)
+		} else {
+			require.Equal(t, "/retries/go/here", req.URL.Path)
+		}
+	}
+}
+
 func TestNoConnection_no_POST_retry(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
@@ -195,12 +239,14 @@ func absdur(d time.Duration) time.Duration {
 
 type TimingRequestPerformer struct {
 	callTimes      []time.Time
+	callRequests   []*http.Request
 	calledCallback func()
 }
 
 func (tr *TimingRequestPerformer) Do(req *http.Request) (*http.Response, error) {
 	now := time.Now()
 	tr.callTimes = append(tr.callTimes, now)
+	tr.callRequests = append(tr.callRequests, req)
 	if tr.calledCallback != nil {
 		tr.calledCallback()
 	}
