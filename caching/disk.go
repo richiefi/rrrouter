@@ -413,11 +413,14 @@ func (sw *storageWriter) Read(p []byte) (n int, err error) {
 
 func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 	dirs := GetCacheControlDirectives(h)
-	if (s != 200 && !util.IsRedirect(s)) || dirs.DoNotCache() {
+	if (s != 200 && !IsCacheableError(s) && !util.IsRedirect(s)) || dirs.DoNotCache() {
 		sw.invalidated = true
 		return
 	} else {
 		sw.writtenStatus = s
+		if IsCacheableError(s) {
+			h.Set("cache-control", "s-maxage=60, max-age=60")
+		}
 		sw.responseHeader = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
 	}
 
