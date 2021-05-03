@@ -272,6 +272,7 @@ func (r *router) follow(req *http.Request, requestData []byte, retryAllowed bool
 			}
 
 			req.URL = util.RedirectedURL(req, redirectedURL)
+			req.Host = req.URL.Host
 			requestData = nil
 		} else {
 			return resp, redirectedURL, err
