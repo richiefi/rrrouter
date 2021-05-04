@@ -192,7 +192,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		if isRevalidating {
 			kind = RevalidatingReader
 		} else {
-			kind = NotFoundWriter
+			kind = NotFoundReader
 		}
 		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0}
 	} else {
