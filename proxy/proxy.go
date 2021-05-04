@@ -415,12 +415,21 @@ func (r *router) performRequest(req *http.Request, requestData []byte, retryAllo
 	if err != nil {
 		// Also purge connections after failed POSTs and failed last tries
 		r.requestPerformer.CloseIdleConnections()
-		logctx.WithError(err).Warn("Error performing new request, will report bad gateway")
-		return nil, usererror.CreateError(http.StatusBadGateway, "Destination unreachable")
+		if isClientClose(err) {
+			logctx.WithError(err).Warn("Error performing new request, will report client closed connection")
+			return nil, usererror.CreateError(499, "Client closed connection")
+		} else {
+			logctx.WithError(err).Warn("Error performing new request, will report bad gateway")
+			return nil, usererror.CreateError(http.StatusBadGateway, "Destination unreachable")
+		}
 	}
 
 	logctx.Debug("Successfully performed request")
 	return resp, nil
+}
+
+func isClientClose(err error) bool {
+	return err.Error() == "context canceled"
 }
 
 func retryable(req *http.Request) bool {
