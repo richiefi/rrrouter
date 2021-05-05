@@ -196,10 +196,10 @@ A `type` field with value `proxy` is equivalent to a missing `type` field, and m
 The mechanism for selecting rules is as follows:
 
 1. Rules are checked in the order they are in the file.
-2. If a rule has a `methods` list and it does not include the request method, the rule is skipped.
-3. If a rule's pattern matches and its type is `copy_traffic`, it's selected as the copy target. This will not be overridden by later `copy_traffic` matches.
-4. If a rule's pattern matches and its type is `proxy`, it's selected as the proxy target and the search is terminated.
-
+2. If a rule's `enabled` is false, the rule is skipped.
+3. If a rule has a `methods` list and it does not include the request method, the rule is skipped.
+4. If a rule's pattern matches and its type is `copy_traffic`, it's selected as the copy target. This will not be overridden by later `copy_traffic` matches.
+5. If a rule's pattern matches and its type is `proxy`, it's selected as the proxy target and the search is terminated.
 
 ## Request and Response Headers
 
