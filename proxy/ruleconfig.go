@@ -36,6 +36,7 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
+	Enabled          *bool             `json:"enabled"`
 	Methods          []string          `json:"methods"`
 	Pattern          string            `json:"pattern"`
 	Destination      string            `json:"destination"`
@@ -64,6 +65,11 @@ type Rules struct {
 func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) {
 	rules := make([]*Rule, 0, len(ruleSources))
 	for _, rsrc := range ruleSources {
+		enabled := true
+		if rsrc.Enabled != nil {
+			enabled = *rsrc.Enabled
+		}
+
 		if rsrc.Pattern == "" || rsrc.Destination == "" {
 			return nil, fmt.Errorf("rule had empty pattern %q or destination %q", rsrc.Pattern, rsrc.Destination)
 		}
@@ -124,7 +130,7 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 				retryRule = rRules.rules[0]
 			}
 		}
-		rule, err := NewRule(rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
+		rule, err := NewRule(enabled, rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
 		if err != nil {
 			return nil, err
 		}
@@ -228,6 +234,9 @@ func (rs *Rules) Match(s string, method string) (*RuleMatchResults, error) {
 
 RulesLoop:
 	for _, r := range rs.rules {
+		if r.enabled == false {
+			continue
+		}
 		if len(r.methods) > 0 && !r.methods[method] {
 			continue
 		}

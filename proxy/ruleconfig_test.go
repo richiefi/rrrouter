@@ -258,3 +258,36 @@ func TestConfigParse_rule_order_is_preserved_and_first_match_used(t *testing.T) 
 
 	require.Equal(t, "http://example.com/v1/zap/fnord", ruleMatchResults.proxyMatch.target)
 }
+
+func TestConfigParse_rule_can_be_disabled(t *testing.T) {
+	src := `{"rules": [
+        {
+            "pattern": "api.example.com/foo/*",
+            "destination": "http://example.com/v1/$1",
+			"enabled": false
+        },
+        {
+            "pattern": "api.example.com/foo/*",
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+            "pattern": "api.example.com/foo2/*",
+            "destination": "http://richie-fooserver.herokuapp.com/v2/$1",
+            "enabled": true
+        },
+        ]
+    }`
+	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
+	require.Nil(t, err)
+	require.Equal(t, len(rules.rules), 3)
+
+	ruleMatchResults, err := rules.Match("https://api.example.com/foo/zap/fnord", "GET")
+	require.Nil(t, err)
+	require.NotNil(t, ruleMatchResults)
+	require.Equal(t, "http://richie-fooserver.herokuapp.com/v1/zap/fnord", ruleMatchResults.proxyMatch.target)
+
+	ruleMatchResults, err = rules.Match("https://api.example.com/foo2/zap/fnord", "GET")
+	require.Nil(t, err)
+	require.NotNil(t, ruleMatchResults)
+	require.Equal(t, "http://richie-fooserver.herokuapp.com/v2/zap/fnord", ruleMatchResults.proxyMatch.target)
+}
