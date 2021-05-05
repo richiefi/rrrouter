@@ -131,7 +131,7 @@ func configReloader(c chan bool, router proxy.Router, cache caching.Cache, logge
 
 func periodicReloader(outChan chan bool) {
 	for {
-		time.Sleep(time.Minute * 1)
+		time.Sleep(time.Second * 10)
 		outChan <- true
 	}
 }
