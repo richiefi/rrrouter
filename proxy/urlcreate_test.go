@@ -57,7 +57,7 @@ func uparse(s string) *url.URL {
 }
 
 func createRule(pat, dest string) *Rule {
-	r, err := NewRule(pat, dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
+	r, err := NewRule(true, pat, dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
 	if err != nil {
 		panic(err)
 	}

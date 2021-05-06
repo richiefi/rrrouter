@@ -10,6 +10,7 @@ import (
 
 // Rule describes a single forwarding rule
 type Rule struct {
+	enabled          bool
 	pattern          string
 	re               *regexp.Regexp
 	dest             string
@@ -40,7 +41,7 @@ const (
 )
 
 // NewRule builds a new Rule
-func NewRule(pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
+func NewRule(enabled bool, pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
 	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, flattenRedirects bool, retryRule *Rule) (*Rule, error) {
 	lowpat := strings.ToLower(pattern)
 	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://") || strings.HasPrefix(lowpat, "*://"))
@@ -65,6 +66,7 @@ func NewRule(pattern, destination string, internal bool, methods map[string]bool
 	repattern := strings.Join(finalParts, "")
 	r := regexp.MustCompile(repattern)
 	rule := &Rule{
+		enabled:          enabled,
 		pattern:          pattern,
 		re:               r,
 		dest:             destination,
