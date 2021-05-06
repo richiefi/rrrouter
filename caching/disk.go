@@ -428,6 +428,10 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		sw.created = time.Now().Unix()
 	}
 	if sw.fd == nil {
+		err := createAllSubdirs(filepath.Dir(sw.path))
+		if err != nil {
+			panic(fmt.Sprintf("Could not create directory for path: %v", sw.path))
+		}
 		fd, err := os.Create(sw.path)
 		if err != nil {
 			exists, _ := pathExists(sw.path)
@@ -442,6 +446,15 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		}
 		sw.fd = fd
 	}
+}
+
+func createAllSubdirs(dir string) error {
+	_, err := os.Stat(dir)
+	if err == nil || !os.IsNotExist(err) {
+		return nil
+	}
+
+	return os.MkdirAll(dir, 0755)
 }
 
 func (sw *storageWriter) Write(p []byte) (n int, err error) {
