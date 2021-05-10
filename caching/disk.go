@@ -150,6 +150,7 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan Key) S
 	}
 
 	return &storageWriter{key: key,
+		root:           s.path,
 		path:           fp,
 		wasRevalidated: revalidate,
 		closeFinisher: func(name string, size int64) {
@@ -387,6 +388,7 @@ func (s *storage) purgeableItemNames(purgeBytes int64) purgeableItems {
 type storageWriter struct {
 	key            Key
 	oldKey         *Key
+	root           string
 	path           string
 	invalidated    bool
 	closeFinisher  func(name string, size int64)
@@ -566,7 +568,7 @@ func (sw *storageWriter) WrittenFile() (*os.File, error) {
 
 func (sw *storageWriter) ChangeKey(k Key) error {
 	sw.log.Debugf("1: Gonna change %v to %v\n%v VS. %v\n", sw.key.FsName(), k.FsName(), sw.key, k)
-	newPath := filepath.Join(filepath.Dir(sw.path), k.FsName())
+	newPath := filepath.Join(sw.root, k.FsName())
 	exists, err := pathExists(newPath)
 	if err != nil {
 		return err
