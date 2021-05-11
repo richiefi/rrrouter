@@ -82,7 +82,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 			}, func() (*os.File, error) {
 				f := tempFile(t, written)
 				return f, nil
-			})
+			}, func(u *url.URL) {})
 		cw, _ := sw.(caching.CacheWriter)
 		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
@@ -200,7 +200,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 			}, func() (*os.File, error) {
 				f := tempFile(t, written)
 				return f, nil
-			})
+			}, func(url *url.URL) {})
 		cw, _ := sw.(caching.CacheWriter)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
@@ -1241,6 +1241,59 @@ func TestCache_recursive_redirects_not_allowed(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_flattened_relative_redirects_use_rule_destination_host(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	var listener *httptest.Server
+	var originServerBaseURL string
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		status := 0
+		if timesOriginHit == 1 {
+			status = 302
+			w.Header().Set("location", "/t/redir/subpath1")
+		} else if timesOriginHit == 2 {
+			status = 200
+		}
+		w.WriteHeader(status)
+	}))
+	defer originServer.Close()
+	originServerBaseURL = originServer.URL
+
+	setRedirectedURLString := ""
+	written := []byte{}
+	rules := rulesWithCacheIdFlattenredirectsResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
+	tc := NewTestCacheGet("disk1", func(s string, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
+		sw := NewTestStorageWriter(
+			func(p []byte) (n int, err error) {
+				return 0, nil
+			}, func() error {
+				return nil
+			}, func(s int, h http.Header) {
+			}, func() (*os.File, error) {
+				f := tempFile(t, written)
+				return f, nil
+			}, func(u *url.URL) {
+				setRedirectedURLString = u.String()
+			})
+		cw, _ := sw.(caching.CacheWriter)
+		require.NotNil(t, cw)
+		writer := caching.NewCachingResponseWriter(w, cw, l)
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
+	})
+
+	listener = listenerWithCache(tc, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
+	defer resp.Body.Close()
+	require.True(t, len(originServerBaseURL) > 0)
+	require.Equal(t, originServerBaseURL+"/t/redir/subpath1", setRedirectedURLString)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, 2, timesOriginHit)
+}
+
 func TestCache_one_writer_two_readers(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
@@ -1525,10 +1578,11 @@ func newTestStorage(s caching.Storage, queriedKeys func(caching.Key)) caching.St
 
 type testStorageWriter struct {
 	caching.StorageWriter
-	write       func(p []byte) (n int, err error)
-	close       func() error
-	writeHeader func(int, http.Header)
-	writtenFile func() (*os.File, error)
+	write            func(p []byte) (n int, err error)
+	close            func() error
+	writeHeader      func(int, http.Header)
+	writtenFile      func() (*os.File, error)
+	setRedirectedURL func(*url.URL)
 }
 
 func (sw testStorageWriter) WriteHeader(s int, h http.Header) {
@@ -1551,7 +1605,9 @@ func (sw testStorageWriter) Flush() {
 }
 
 func (sw testStorageWriter) SetRedirectedURL(redir *url.URL) {
-
+	if sw.setRedirectedURL != nil {
+		sw.setRedirectedURL(redir)
+	}
 }
 
 func (sw testStorageWriter) ChangeKey(caching.Key) error {
@@ -1562,12 +1618,13 @@ func (sw testStorageWriter) Abort() error {
 	return nil
 }
 
-func NewTestStorageWriter(write func(p []byte) (n int, err error), close func() error, writeHeader func(int, http.Header), writtenFile func() (*os.File, error)) caching.StorageWriter {
+func NewTestStorageWriter(write func(p []byte) (n int, err error), close func() error, writeHeader func(int, http.Header), writtenFile func() (*os.File, error), setRedirectedURL func(*url.URL)) caching.StorageWriter {
 	return &testStorageWriter{
-		write:       write,
-		close:       close,
-		writeHeader: writeHeader,
-		writtenFile: writtenFile,
+		write:            write,
+		close:            close,
+		writeHeader:      writeHeader,
+		writtenFile:      writtenFile,
+		setRedirectedURL: setRedirectedURL,
 	}
 }
 

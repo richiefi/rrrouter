@@ -209,6 +209,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							}
 							redirectedUrl := util.RedirectedURL(r, reqres.RedirectedURL)
 							redirectedUrl.Scheme = reqres.OriginalURL.Scheme
+							redirectedUrl.Host = reqres.OriginalURL.Host
 							cr.Writer.SetRedirectedURL(redirectedUrl)
 							if rf.FlattenRedirects {
 								rr := r.Clone(r.Context())
