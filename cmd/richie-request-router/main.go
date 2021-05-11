@@ -105,7 +105,6 @@ func (s *StartCmd) Run(ctx *cliContext) error {
 func configReloader(c chan bool, router proxy.Router, cache caching.Cache, logger *apexlog.Logger) {
 	for {
 		<-c
-		logger.Info("ConfigReloader: Checking for changes...")
 		mappingData, err := readMapping(gMappingURL, gMappingFile)
 		if err != nil {
 			logger.Errorf("ConfigReloader: caught error reading mapping. URL: %v / file: %v: %v", gMappingURL, gMappingFile, err)
@@ -113,7 +112,6 @@ func configReloader(c chan bool, router proxy.Router, cache caching.Cache, logge
 		}
 		mc := util.SHA1String(mappingData)
 		if gMappingChecksum == mc {
-			logger.Info("ConfigReloader: Checksum not changed.")
 			continue
 		}
 		rules, err := proxy.ParseRules(mappingData, logger)
