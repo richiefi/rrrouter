@@ -23,6 +23,8 @@ docker run \
   rrrouter
 ```
 
+An optional MAPPING_CHECK_INTERVAL can be given in the environment and when set to non-zero, will check the file or URL every N seconds for changes.
+
 ## Building and Running
 
 rrrouter is written in Go. It uses the go module system.

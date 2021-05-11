@@ -91,7 +91,9 @@ func (s *StartCmd) Run(ctx *cliContext) error {
 	reloadChan := make(chan bool, 1)
 	sigChan := make(chan os.Signal, 1)
 	signal.Notify(sigChan, syscall.SIGHUP)
-	go periodicReloader(reloadChan)
+	if c.MappingCheckInterval > 0 {
+		go periodicReloader(reloadChan, c.MappingCheckInterval)
+	}
 	go signalReloader(sigChan, reloadChan)
 	go configReloader(reloadChan, router, ca, logger)
 
@@ -129,9 +131,9 @@ func configReloader(c chan bool, router proxy.Router, cache caching.Cache, logge
 	}
 }
 
-func periodicReloader(outChan chan bool) {
+func periodicReloader(outChan chan bool, intervalSec int) {
 	for {
-		time.Sleep(time.Second * 10)
+		time.Sleep(time.Second * time.Duration(intervalSec))
 		outChan <- true
 	}
 }
