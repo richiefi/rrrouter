@@ -187,7 +187,7 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 			return nil, StorageMetadata{}, key, err
 		}
 
-		xattrb, err := xattr.FGet(f, metadataXAttrName)
+		sm, err := getStorageMetadata(f, metadataXAttrName)
 		if err != nil {
 			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
 			err := os.Remove(fp)
@@ -198,15 +198,24 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 			continue
 		}
 
-		sm, err := decodeStorageMetadata(xattrb)
-		if err != nil {
-			return nil, StorageMetadata{}, key, err
-		}
-
 		return f, sm, key, nil
 	}
 
 	return nil, StorageMetadata{}, keys[0], os.ErrNotExist
+}
+
+func getStorageMetadata(f *os.File, attrName string) (StorageMetadata, error) {
+	xattrb, err := xattr.FGet(f, attrName)
+	if err != nil {
+		return StorageMetadata{}, err
+	}
+
+	sm, err := decodeStorageMetadata(xattrb)
+	if err != nil {
+		return StorageMetadata{}, err
+	}
+
+	return sm, nil
 }
 
 func (s *storage) Id() string {
@@ -479,8 +488,24 @@ func (sw *storageWriter) Close() error {
 		return nil
 	}
 
+	var revalidatedMetadata *StorageMetadata
 	if sw.fd == nil {
-		return nil
+		if sw.wasRevalidated {
+			fd, err := os.OpenFile(sw.path, os.O_RDWR, 0)
+			if err != nil {
+				sw.log.Errorf("Could not reopen file for revalidation state saving: %v", err)
+				return err
+			}
+			sm, err := getStorageMetadata(fd, metadataXAttrName)
+			if err != nil {
+				return err
+			}
+			sm.Revalidated = sw.now().Unix()
+			revalidatedMetadata = &sm
+			sw.fd = fd
+		} else {
+			return nil
+		}
 	}
 
 	err := sw.fd.Close()
@@ -505,28 +530,34 @@ func (sw *storageWriter) Close() error {
 		}
 	}
 
-	var revalidated int64
-	if sw.wasRevalidated {
-		revalidated = sw.now().Unix()
+	var metadata StorageMetadata
+	if revalidatedMetadata == nil {
+		var revalidated int64
+		if sw.wasRevalidated {
+			revalidated = sw.now().Unix()
+		} else {
+			revalidated = 0
+		}
+		var redirectedURL string
+		if sw.redirectedURL != nil {
+			redirectedURL = sw.redirectedURL.String()
+		}
+		metadata = StorageMetadata{
+			Host:           sw.key.host,
+			Path:           sw.key.path,
+			RequestHeader:  sw.key.storedHeaders,
+			ResponseHeader: sw.responseHeader,
+			Status:         sw.writtenStatus,
+			RedirectedURL:  redirectedURL,
+			Created:        sw.created,
+			Revalidated:    revalidated,
+			Size:           sw.writtenSize,
+		}
 	} else {
-		revalidated = 0
+		metadata = *revalidatedMetadata
 	}
-	var redirectedURL string
-	if sw.redirectedURL != nil {
-		redirectedURL = sw.redirectedURL.String()
-	}
-	sm := StorageMetadata{
-		Host:           sw.key.host,
-		Path:           sw.key.path,
-		RequestHeader:  sw.key.storedHeaders,
-		ResponseHeader: sw.responseHeader,
-		Status:         sw.writtenStatus,
-		RedirectedURL:  redirectedURL,
-		Created:        sw.created,
-		Revalidated:    revalidated,
-		Size:           sw.writtenSize,
-	}
-	esm, err := encodeStorageMetadata(sm)
+
+	esm, err := encodeStorageMetadata(metadata)
 	if err != nil {
 		return err
 	}
@@ -597,6 +628,10 @@ func (sw *storageWriter) ChangeKey(k Key) error {
 
 func (sw *storageWriter) SetRedirectedURL(redir *url.URL) {
 	sw.redirectedURL = redir
+}
+
+func (sw *storageWriter) SetRevalidated() {
+	sw.wasRevalidated = true
 }
 
 func (sw *storageWriter) Abort() error {

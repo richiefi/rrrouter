@@ -163,6 +163,13 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if rRange != nil {
 						r.Header.Del("range")
 					}
+					revalidatedWithEtag := false
+					if cr.Kind == caching.RevalidatingWriter {
+						if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
+							r.Header.Set("if-none-match", etag)
+						}
+						revalidatedWithEtag = true
+					}
 					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
 						cache.Invalidate(key, logger)
@@ -174,6 +181,17 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						for _, hval := range hvals {
 							alwaysInclude.Set(hname, hval)
 						}
+					}
+					if revalidatedWithEtag && reqres.Response.StatusCode == 304 {
+						r.Header.Del("if-none-match")
+						err := cr.Writer.SetRevalidatedAndClose()
+						if err != nil {
+							writeError(*w, err)
+							return
+						}
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+						cachingFunc(w, r, nil, alwaysInclude, &rf)
+						return
 					}
 
 					var statusOverride *int

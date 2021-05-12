@@ -120,8 +120,10 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 	logctx.Debugf("Hit: %v // %v", k, k.FsName())
 
 	var age int64
+	ageFromRevalidate := false
 	if sm.Revalidated != 0 {
 		age = c.now().Unix() - sm.Revalidated
+		ageFromRevalidate = true
 	} else {
 		age = c.now().Unix() - sm.Created
 	}
@@ -140,9 +142,18 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 		}
 	}
 
+	if !shouldRevalidate {
+		dirs := GetCacheControlDirectives(sm.ResponseHeader)
+		if dirs.SMaxAge != nil {
+			shouldRevalidate = *dirs.SMaxAge <= age
+		} else if dirs.MaxAge != nil {
+			shouldRevalidate = *dirs.MaxAge <= age
+		}
+	}
+
 	expires := sm.ResponseHeader.Get("expires")
 	var expiresTime time.Time
-	if !shouldRevalidate && len(expires) > 0 {
+	if !shouldRevalidate && len(expires) > 0 && !ageFromRevalidate {
 		expiresTime = c.now()
 		for _, f := range []string{time.RFC1123, time.RFC1123Z} {
 			var err error
@@ -153,15 +164,6 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 			break
 		}
 		shouldRevalidate = expiresTime.Unix() <= c.now().Unix()
-	}
-
-	if !shouldRevalidate {
-		dirs := GetCacheControlDirectives(sm.ResponseHeader)
-		if dirs.SMaxAge != nil {
-			shouldRevalidate = *dirs.SMaxAge <= age
-		} else if dirs.MaxAge != nil {
-			shouldRevalidate = *dirs.MaxAge <= age
-		}
 	}
 
 	if shouldRevalidate {
@@ -403,6 +405,7 @@ type CacheWriter interface {
 	http.Flusher
 	WriteHeader(statusCode int, header http.Header)
 	SetRedirectedURL(redir *url.URL)
+	SetRevalidated()
 	ChangeKey(Key) error
 	Abort() error
 	WrittenFile() (*os.File, error)
@@ -451,6 +454,7 @@ type CachingResponseWriter interface {
 	SetClientWritesDisabled()
 	GetClientWritesDisabled() bool
 	SetRedirectedURL(*url.URL)
+	SetRevalidatedAndClose() error
 }
 
 type cachingResponseWriter struct {
@@ -522,6 +526,11 @@ func (crw *cachingResponseWriter) GetClientWritesDisabled() bool {
 
 func (crw *cachingResponseWriter) SetRedirectedURL(redir *url.URL) {
 	crw.cacheWriter.SetRedirectedURL(redir)
+}
+
+func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
+	crw.cacheWriter.SetRevalidated()
+	return crw.cacheWriter.Close()
 }
 
 func (crw *cachingResponseWriter) Abort() error {
