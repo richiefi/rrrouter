@@ -241,12 +241,11 @@ func (s *storage) stats() string {
 	return fmt.Sprintf("Storage %v: %v / %v mB (%.1f%%) in use.", s.id, s.sizeBytes/1024/1024, s.maxSizeBytes/1024/1024, float64(s.sizeBytes)/float64(s.maxSizeBytes)*100)
 }
 
-func (s *storage) readFiles1() ([]string, int) {
-	d, err := os.Open(s.path)
+func (s *storage) readFiles(path string) int {
+	d, err := os.Open(path)
 	if err != nil {
-		panic(fmt.Sprintf("Can't open storage path %v: %v\n", s.path, err))
+		panic(fmt.Sprintf("Can't open storage path %v: %v\n", path, err))
 	}
-	strayFiles := []string{}
 	fileCount := 0
 	var names []string
 	for err != io.EOF {
@@ -256,13 +255,13 @@ func (s *storage) readFiles1() ([]string, int) {
 		}
 		for _, n := range names {
 			fileCount += 1
-			fi, err := os.Stat(s.path + "/" + n)
+			fi, err := os.Stat(path + "/" + n)
 			if err != nil {
 				s.logger.Errorf("Error listing file: %v", err)
 				continue
 			}
 			if fi.IsDir() {
-				continue
+				fileCount += s.readFiles(filepath.Join(path, n))
 			}
 			name := fi.Name()
 			size := fi.Size()
@@ -271,25 +270,13 @@ func (s *storage) readFiles1() ([]string, int) {
 		}
 	}
 
-	return strayFiles, fileCount
+	return fileCount
 }
 
 func (s *storage) runSizeLimiter() {
-	strayFiles, fileCount := s.readFiles1()
-	s.logger.Infof("Read sizes of %v files: %v", fileCount, s.sizeBytes)
-
-	for _, name := range strayFiles {
-		fsPath := filepath.Join(s.path, name)
-		err := os.Remove(fsPath)
-		if err != nil {
-			if os.IsNotExist(err) {
-				s.logger.Infof("Stray file had been removed already: %v", err)
-			} else {
-				s.logger.Errorf("Failed to remove stray file: %v", err)
-			}
-			continue
-		}
-	}
+	t := time.Now()
+	fileCount := s.readFiles(s.path)
+	s.logger.Infof("Read sizes of %v files in %v: %v", fileCount, time.Now().Sub(t), s.sizeBytes)
 
 	// Initialization done, go at it forever:
 
