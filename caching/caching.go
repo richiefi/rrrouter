@@ -76,7 +76,6 @@ func (c *cache) readerNotifier() {
 	}
 
 	for {
-		c.logger.Debugf("%v", c.waitingReaders)
 		c.logger.Debugf("readerNotifier waiting for key")
 		k := <-*c.closeNotifier
 		c.logger.Debugf("readerNotifier got key: %v", k)
