@@ -167,8 +167,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if cr.Kind == caching.RevalidatingWriter {
 						if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
 							r.Header.Set("if-none-match", etag)
+							revalidatedWithEtag = true
 						}
-						revalidatedWithEtag = true
 					}
 					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
