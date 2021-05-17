@@ -123,7 +123,7 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 		IdleConnTimeout:       90 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		MaxIdleConnsPerHost:   10,
+		MaxIdleConnsPerHost:   100,
 	}
 
 	return &router{
