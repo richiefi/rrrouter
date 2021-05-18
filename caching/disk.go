@@ -356,10 +356,12 @@ func (s *storage) purgeableItemNames(purgeBytes int64) purgeableItems {
 		withoutAccessTimes = append(withoutAccessTimes, name)
 		bytesFound += int64(item.sizeKilobytes * 1024)
 		if bytesFound >= purgeBytes {
+			s.logger.Infof("Could satisfy purgeable from %v items without access time", len(s.withoutAccessTime))
 			return purgeableItems{withoutAccessTimes: withoutAccessTimes, size: bytesFound}
 		}
 	}
 	// 2. if not satisfied, continue with items with access times
+	s.logger.Infof("Looking for purgeable from %v items with access time", len(s.withAccessTime))
 	accessedItems := make([]sortingItem, len(s.withAccessTime))
 	i := 0
 	for name, ai := range s.withAccessTime {
