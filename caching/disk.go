@@ -297,8 +297,8 @@ func (s *storage) runSizeLimiter() {
 			continue
 		}
 
-		s.logger.Debugf("with access time: %v", s.withAccessTime)
-		s.logger.Debugf("without access time: %v", s.withoutAccessTime)
+		//s.logger.Debugf("with access time: %v", s.withAccessTime)
+		//s.logger.Debugf("without access time: %v", s.withoutAccessTime)
 		removedWithoutAccessTimes := []itemName{}
 		removedWithAccessTimes := []itemName{}
 		rmFiles := func(ins *[]itemName, removed *[]itemName) {
