@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Run is the main entrypoint used to s the server.
@@ -109,11 +110,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if cr.Writer != nil || cr.WaitChan != nil {
 				waited := false
 				if cr.WaitChan != nil {
-					waitedKey := <-*cr.WaitChan
-					waited = true
-					cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
-					if err != nil {
-						writeError(*w, err)
+					select {
+					case waitedKey := <-*cr.WaitChan:
+						waited = true
+						cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
+						if err != nil {
+							writeError(*w, err)
+							return
+						}
+					case <-time.After(30 * time.Second):
+						writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
 						return
 					}
 				}
