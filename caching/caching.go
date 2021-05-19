@@ -56,6 +56,10 @@ func newCache(storages []*Storage, logger *apexlog.Logger, now func() time.Time)
 	c.closeNotifier = &closeNotif
 
 	go c.readerNotifier()
+	s := os.Getenv("DEBUG_NOTIFIER_INTERVAL")
+	if i, err := strconv.Atoi(s); err == nil && i > 0 {
+		go c.debugReaderNotifier(i)
+	}
 
 	return c
 }
@@ -80,44 +84,12 @@ func (c *cache) readerNotifier() {
 		return
 	}
 
-	debugNotifier := true //os.Getenv("DEBUG_NOTIFIER") == "1"
-
 	for {
 		c.logger.Debugf("readerNotifier waiting for key")
 		k := <-*c.closeNotifier
 		c.logger.Debugf("readerNotifier got key: %v", k)
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
-		if debugNotifier {
-			ages := []time.Duration{}
-			n := len(c.waitingReaders)
-			if n == 0 {
-				continue
-			}
-			for rk, cts := range c.waitingReaders {
-				c.logger.Infof("rn: %v has %v waiting", rk, len(cts))
-				for _, ct := range cts {
-					age := time.Now().Sub(ct.time)
-					if age > time.Second*60 {
-						c.logger.Infof("rn: %v with age %v", rk, age)
-					}
-					ages = append(ages, age)
-				}
-			}
-			if len(ages) > 0 {
-				sum := 0
-				max := 0
-				for age := range ages {
-					if age > max {
-						max = age
-					}
-					sum += age
-				}
-				c.logger.Infof("rn: %v keys in total with avg: %v, max: %v", n, sum/len(ages), max)
-			} else {
-				c.logger.Infof("rn: %v keys in total with none waiting", n)
-			}
-		}
 		if readers, exists := c.waitingReaders[rk]; exists {
 			for i, ct := range readers {
 				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
@@ -126,6 +98,47 @@ func (c *cache) readerNotifier() {
 			delete(c.waitingReaders, rk)
 		}
 		c.waitingReadersLock.Unlock()
+	}
+}
+
+func (c *cache) debugReaderNotifier(i int) {
+	for {
+		c.logger.Infof("rn: enter")
+		c.waitingReadersLock.Lock()
+		ages := []time.Duration{}
+		n := len(c.waitingReaders)
+		if n == 0 {
+			c.waitingReadersLock.Unlock()
+			c.logger.Infof("rn: exit 0")
+			time.Sleep(time.Second * time.Duration(i))
+			continue
+		}
+		for rk, cts := range c.waitingReaders {
+			c.logger.Infof("rn: %v has %v waiting", rk, len(cts))
+			for _, ct := range cts {
+				age := time.Now().Sub(ct.time)
+				if age > time.Second*60 {
+					c.logger.Infof("rn: %v with age %v", rk, age)
+				}
+				ages = append(ages, age)
+			}
+		}
+		if len(ages) > 0 {
+			sum := 0
+			max := 0
+			for age := range ages {
+				if age > max {
+					max = age
+				}
+				sum += age
+			}
+			c.logger.Infof("rn: %v keys in total with avg: %v, max: %v", n, sum/len(ages), max)
+		} else {
+			c.logger.Infof("rn: %v keys in total with none waiting", n)
+		}
+		c.waitingReadersLock.Unlock()
+		c.logger.Infof("rn: exit")
+		time.Sleep(time.Second * 5)
 	}
 }
 
