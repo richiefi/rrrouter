@@ -175,6 +175,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							r.Header.Set("if-none-match", etag)
 							revalidatedWithEtag = true
 						}
+					} else if cr.Kind == caching.NotFoundWriter {
+						if len(r.Header.Get("if-none-match")) > 0 {
+							r.Header.Del("if-none-match")
+						}
 					}
 					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
