@@ -188,6 +188,12 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 				defer rc.Close()
 				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
 			}
+		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
+			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
+			if mdModifiedSince == modifiedSince {
+				defer rc.Close()
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
+			}
 		}
 	}
 
