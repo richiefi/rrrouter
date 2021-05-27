@@ -19,6 +19,7 @@ import (
 	"os/exec"
 	"strconv"
 	"strings"
+	"time"
 )
 
 // Run is the main entrypoint used to s the server.
@@ -109,11 +110,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if cr.Writer != nil || cr.WaitChan != nil {
 				waited := false
 				if cr.WaitChan != nil {
-					waitedKey := <-*cr.WaitChan
-					waited = true
-					cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
-					if err != nil {
-						writeError(*w, err)
+					select {
+					case waitedKey := <-*cr.WaitChan:
+						waited = true
+						cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
+						if err != nil {
+							writeError(*w, err)
+							return
+						}
+					case <-time.After(30 * time.Second):
+						writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
 						return
 					}
 				}
@@ -163,12 +169,18 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if rRange != nil {
 						r.Header.Del("range")
 					}
-					revalidatedWithEtag := false
+					revalidatedWithHeader := ""
 					if cr.Kind == caching.RevalidatingWriter {
 						if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
 							r.Header.Set("if-none-match", etag)
-							revalidatedWithEtag = true
+							revalidatedWithHeader = "if-none-match"
+						} else if lastModified := cr.Metadata.Header.Get("last-modified"); len(lastModified) > 0 {
+							r.Header.Set("if-modified-since", lastModified)
+							revalidatedWithHeader = "if-modified-since"
 						}
+					} else if cr.Kind == caching.NotFoundWriter {
+						r.Header.Del("if-none-match")
+						r.Header.Del("if-modified-since")
 					}
 					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
 					if err != nil {
@@ -182,8 +194,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							alwaysInclude.Set(hname, hval)
 						}
 					}
-					if revalidatedWithEtag && reqres.Response.StatusCode == 304 {
-						r.Header.Del("if-none-match")
+					if reqres.Response.StatusCode == 304 && len(revalidatedWithHeader) > 0 {
+						r.Header.Del(revalidatedWithHeader)
 						err := cr.Writer.SetRevalidatedAndClose()
 						if err != nil {
 							writeError(*w, err)
@@ -490,17 +502,17 @@ func writeBody(reader io.ReadCloser, writer io.Writer, closeWriter bool, errClea
 		keepOpen, err := step(writer)
 		writer.(http.Flusher).Flush()
 		if !keepOpen {
+			var closeErr error
 			if closeWriter {
 				if v, ok := writer.(io.Closer); ok {
-					err := v.Close()
-					if err != nil {
-						logctx.WithField("error", err).Info("Closing writer caused an error")
-						return err
+					closeErr = v.Close()
+					if closeErr != nil {
+						logctx.WithField("closeError", closeErr).Info("Closing writer caused an error")
 					}
 				}
-				if err != nil && errCleanup != nil {
-					errCleanup()
-				}
+			}
+			if (err != nil || closeErr != nil) && errCleanup != nil {
+				errCleanup()
 			}
 			return err
 		}
@@ -560,7 +572,7 @@ var headerAcceptEncodingKey = "Accept-Encoding"
 var headerContentLengthKey = "Content-Length"
 var headerVaryKey = "Vary"
 var headerAge = "Age"
-var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "expires", "vary", "richie-edge-cache"}
+var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "last-modified", "expires", "vary", "richie-edge-cache"}
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter

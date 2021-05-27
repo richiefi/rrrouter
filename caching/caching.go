@@ -46,7 +46,7 @@ func newCache(storages []*Storage, logger *apexlog.Logger, now func() time.Time)
 
 	c := &cache{
 		storages:           storages,
-		waitingReaders:     make(map[string][]*chan Key, 10),
+		waitingReaders:     make(map[string][]*chanWithTime, 10),
 		waitingReadersLock: sync.Mutex{},
 		logger:             logger,
 		now:                now,
@@ -56,18 +56,27 @@ func newCache(storages []*Storage, logger *apexlog.Logger, now func() time.Time)
 	c.closeNotifier = &closeNotif
 
 	go c.readerNotifier()
+	s := os.Getenv("DEBUG_NOTIFIER_INTERVAL")
+	if i, err := strconv.Atoi(s); err == nil && i > 0 {
+		go c.debugReaderNotifier(i)
+	}
 
 	return c
 }
 
 type cache struct {
 	Cache
-	waitingReaders     map[string][]*chan Key
+	waitingReaders     map[string][]*chanWithTime
 	waitingReadersLock sync.Mutex
 	storages           []*Storage
 	logger             *apexlog.Logger
 	now                func() time.Time
 	closeNotifier      *chan Key
+}
+
+type chanWithTime struct {
+	ch   *chan Key
+	time time.Time
 }
 
 func (c *cache) readerNotifier() {
@@ -82,13 +91,54 @@ func (c *cache) readerNotifier() {
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
-			for i, wc := range readers {
-				c.logger.Debugf("readerNotifier notifying %v %v", i, wc)
-				*wc <- k
+			for i, ct := range readers {
+				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
+				*ct.ch <- k
 			}
 			delete(c.waitingReaders, rk)
 		}
 		c.waitingReadersLock.Unlock()
+	}
+}
+
+func (c *cache) debugReaderNotifier(i int) {
+	for {
+		c.logger.Infof("rn: enter")
+		c.waitingReadersLock.Lock()
+		ages := []time.Duration{}
+		n := len(c.waitingReaders)
+		if n == 0 {
+			c.waitingReadersLock.Unlock()
+			c.logger.Infof("rn: exit 0")
+			time.Sleep(time.Second * time.Duration(i))
+			continue
+		}
+		for rk, cts := range c.waitingReaders {
+			c.logger.Infof("rn: %v has %v waiting", rk, len(cts))
+			for _, ct := range cts {
+				age := time.Now().Sub(ct.time)
+				if age > time.Second*60 {
+					c.logger.Infof("rn: %v with age %v", rk, age)
+				}
+				ages = append(ages, age)
+			}
+		}
+		if len(ages) > 0 {
+			sum := 0
+			max := 0
+			for age := range ages {
+				if age > max {
+					max = age
+				}
+				sum += age
+			}
+			c.logger.Infof("rn: %v keys in total with avg: %v, max: %v", n, sum/len(ages), max)
+		} else {
+			c.logger.Infof("rn: %v keys in total with none waiting", n)
+		}
+		c.waitingReadersLock.Unlock()
+		c.logger.Infof("rn: exit")
+		time.Sleep(time.Second * 5)
 	}
 }
 
@@ -135,6 +185,12 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+				defer rc.Close()
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
+			}
+		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
+			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
+			if mdModifiedSince == modifiedSince {
 				defer rc.Close()
 				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
 			}
@@ -185,9 +241,13 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 	c.waitingReadersLock.Lock()
 	c.logger.Debugf("Checking if %v exists", rk)
 	if _, exists := c.waitingReaders[rk]; exists {
-		wc := make(chan Key)
 		defer c.waitingReadersLock.Unlock()
-		c.waitingReaders[rk] = append(c.waitingReaders[rk], &wc)
+		wc := make(chan Key, 1)
+		ct := chanWithTime{
+			ch:   &wc,
+			time: time.Now(),
+		}
+		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
 		c.logger.Debugf("Locking for reader: %v", rk)
 		var kind CacheResultKind
 		if isRevalidating {
@@ -197,7 +257,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		}
 		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0}
 	} else {
-		c.waitingReaders[rk] = make([]*chan Key, 0)
+		c.waitingReaders[rk] = make([]*chanWithTime, 0)
 		defer c.waitingReadersLock.Unlock()
 		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, isRevalidating), logctx)
 		c.logger.Debugf("Locking for writer: %v", rk)

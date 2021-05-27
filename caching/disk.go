@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	apexlog "github.com/apex/log"
+	"github.com/pkg/errors"
 	"github.com/pkg/xattr"
 	"github.com/richiefi/rrrouter/util"
 	"io"
@@ -389,6 +390,7 @@ type storageWriter struct {
 	root           string
 	path           string
 	invalidated    bool
+	errored        bool
 	closeFinisher  func(name string, size int64)
 	closeNotifier  *chan Key
 	closed         bool
@@ -430,17 +432,26 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 	if sw.fd == nil {
 		err := createAllSubdirs(filepath.Dir(sw.path))
 		if err != nil {
-			panic(fmt.Sprintf("Could not create directory for path: %v", sw.path))
+			sw.log.Errorf("Could not create directory for path: %v", sw.path)
+			sw.errored = true
+			sw.notify()
+			return
 		}
 		fd, err := os.Create(sw.path)
 		if err != nil {
 			exists, _ := pathExists(sw.path)
 			if !exists {
-				panic(fmt.Sprintf("Could not create file at path: %v", sw.path))
+				sw.log.Errorf("Could not create file at path %v: %v", sw.path, err)
+				sw.errored = true
+				sw.notify()
+				return
 			} else {
 				fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
 				if err != nil {
-					panic(fmt.Sprintf("Can't open existing file for reading and writing: %v", sw.path))
+					sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
+					sw.errored = true
+					sw.notify()
+					return
 				}
 			}
 		}
@@ -460,6 +471,8 @@ func createAllSubdirs(dir string) error {
 func (sw *storageWriter) Write(p []byte) (n int, err error) {
 	if sw.invalidated {
 		return n, nil
+	} else if sw.errored {
+		return 0, errors.New(fmt.Sprintf("Write called for errored %v", sw.key.FsName()))
 	}
 
 	nn, err := sw.fd.Write(p)
@@ -475,6 +488,8 @@ func (sw *storageWriter) Close() error {
 	if sw.closed == true {
 		sw.log.Warnf("Tried to close an already closed storageWriter: %v", sw.key.FsName())
 		return nil
+	} else if sw.errored {
+		return errors.New("Close called for errored writer")
 	}
 
 	var revalidatedMetadata *StorageMetadata
@@ -560,6 +575,13 @@ func (sw *storageWriter) Close() error {
 		sw.closeFinisher(sw.key.FsName(), sw.writtenSize)
 	}
 
+	sw.notify()
+	sw.closed = true
+
+	return err
+}
+
+func (sw *storageWriter) notify() {
 	if sw.closeNotifier != nil {
 		*sw.closeNotifier <- sw.key
 		if sw.oldKey != nil {
@@ -567,10 +589,6 @@ func (sw *storageWriter) Close() error {
 			*sw.closeNotifier <- *sw.oldKey
 		}
 	}
-
-	sw.closed = true
-
-	return err
 }
 
 func (sw *storageWriter) WrittenFile() (*os.File, error) {
