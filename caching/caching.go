@@ -390,11 +390,16 @@ func (k Key) FsName() string {
 		s += "opaqueOrigin"
 	}
 	name := util.SHA1String([]byte(s))
+	return prefixWithItemName(name) + name
+}
+
+func prefixWithItemName(s string) string {
 	prefix := ""
-	for _, c := range name[:3] {
+	for _, c := range s[:3] {
 		prefix += string(c) + "/"
 	}
-	return prefix + name
+
+	return prefix
 }
 
 func (k Key) HasOpaqueOrigin() bool {

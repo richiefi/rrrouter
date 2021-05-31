@@ -263,11 +263,12 @@ func (s *storage) readFiles(path string) int {
 			}
 			if fi.IsDir() {
 				fileCount += s.readFiles(filepath.Join(path, n))
+				continue
 			}
 			name := fi.Name()
 			size := fi.Size()
 			s.sizeBytes += size
-			s.withoutAccessTime[itemName(name)] = item{sizeKilobytes: uint32(size / 1024)}
+			s.withoutAccessTime[itemName(prefixWithItemName(name)+name)] = item{sizeKilobytes: uint32(size / 1024)}
 		}
 	}
 
