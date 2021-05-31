@@ -263,11 +263,12 @@ func (s *storage) readFiles(path string) int {
 			}
 			if fi.IsDir() {
 				fileCount += s.readFiles(filepath.Join(path, n))
+				continue
 			}
 			name := fi.Name()
 			size := fi.Size()
 			s.sizeBytes += size
-			s.withoutAccessTime[itemName(name)] = item{sizeKilobytes: uint32(size / 1024)}
+			s.withoutAccessTime[itemName(prefixWithItemName(name)+name)] = item{sizeKilobytes: uint32(size / 1024)}
 		}
 	}
 
@@ -308,9 +309,9 @@ func (s *storage) runSizeLimiter() {
 				err := os.Remove(fsPath)
 				if err != nil {
 					if os.IsNotExist(err) {
-						s.logger.Debugf("File had been removed already: %v", err)
+						s.logger.Infof("File had been removed already %v: %v", fsPath, err)
 					} else {
-						s.logger.Debugf("Failed to remove file: %v", err)
+						s.logger.Infof("Failed to remove file %v: %v", fsPath, err)
 						continue
 					}
 				}
@@ -333,7 +334,7 @@ func (s *storage) runSizeLimiter() {
 		}
 		s.itemsLock.Unlock()
 
-		s.logger.Infof("Removed %v / %v items to release at least %v mB",
+		s.logger.Infof("Removed %v / %v items to release at least %v MB",
 			len(removedWithoutAccessTimes)+len(removedWithAccessTimes), len(purgeable.withoutAccessTimes)+len(purgeable.withAccessTimes), purgeable.size/1024/1024)
 		time.Sleep(sleepTime)
 	}
