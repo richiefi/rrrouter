@@ -334,7 +334,7 @@ func (s *storage) runSizeLimiter() {
 		}
 		s.itemsLock.Unlock()
 
-		s.logger.Infof("Removed %v / %v items to release at least %v mB",
+		s.logger.Infof("Removed %v / %v items to release at least %v MB",
 			len(removedWithoutAccessTimes)+len(removedWithAccessTimes), len(purgeable.withoutAccessTimes)+len(purgeable.withAccessTimes), purgeable.size/1024/1024)
 		time.Sleep(sleepTime)
 	}
