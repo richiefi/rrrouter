@@ -308,9 +308,9 @@ func (s *storage) runSizeLimiter() {
 				err := os.Remove(fsPath)
 				if err != nil {
 					if os.IsNotExist(err) {
-						s.logger.Debugf("File had been removed already: %v", err)
+						s.logger.Infof("File had been removed already %v: %v", fsPath, err)
 					} else {
-						s.logger.Debugf("Failed to remove file: %v", err)
+						s.logger.Infof("Failed to remove file %v: %v", fsPath, err)
 						continue
 					}
 				}
