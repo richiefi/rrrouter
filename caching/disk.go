@@ -642,13 +642,10 @@ func (sw *storageWriter) SetRevalidated() {
 }
 
 func (sw *storageWriter) Abort() error {
-	err := sw.fd.Close()
+	closeErr := sw.fd.Close()
+	err := os.Remove(sw.path)
 	if err != nil {
-		return err
-	}
-
-	err = os.Remove(sw.path)
-	if err != nil {
+		sw.log.Errorf("Could not remove path %v: %v. Close error was: %v", sw.path, err, closeErr)
 		return err
 	}
 
