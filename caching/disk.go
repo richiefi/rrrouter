@@ -239,7 +239,7 @@ func (s *storage) SetIsReplaced() {
 }
 
 func (s *storage) stats() string {
-	return fmt.Sprintf("Storage %v: %v / %v mB (%.1f%%) in use.", s.id, s.sizeBytes/1024/1024, s.maxSizeBytes/1024/1024, float64(s.sizeBytes)/float64(s.maxSizeBytes)*100)
+	return fmt.Sprintf("Storage %v: %v / %v MB (%.1f%%) in use.", s.id, s.sizeBytes/1024/1024, s.maxSizeBytes/1024/1024, float64(s.sizeBytes)/float64(s.maxSizeBytes)*100)
 }
 
 func (s *storage) readFiles(path string) int {
