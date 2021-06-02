@@ -97,7 +97,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			}
 
 			if cr.Metadata.Status == 304 {
-				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), nil)
+				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), *alwaysInclude)
 				(*w).WriteHeader(304)
 				return
 			}
