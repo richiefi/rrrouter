@@ -517,6 +517,7 @@ func (sw *storageWriter) Close() error {
 	if err != nil {
 		return err
 	}
+	sizeOnDisk := fi.Size()
 
 	if sw.invalidated {
 		err := os.Remove(sw.path)
@@ -526,13 +527,12 @@ func (sw *storageWriter) Close() error {
 		return err
 	}
 
-	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
-		if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
-			if int64(contentLength) != sw.writtenSize {
-				sw.log.Error(fmt.Sprintf("Written size %v did not match Content-Length header size %v. Deleting stored file.\n", sw.writtenSize, contentLength))
-				return sw.Abort()
-			}
+	if sw.invalidated {
+		err := sw.Delete()
+		if err != nil {
+			sw.log.Warnf("Could not remove invalidated file %v: %v", sw.path, err)
 		}
+		return err
 	}
 
 	var metadata StorageMetadata
@@ -560,6 +560,22 @@ func (sw *storageWriter) Close() error {
 		}
 	} else {
 		metadata = *revalidatedMetadata
+	}
+
+	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
+		if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
+			if int64(contentLength) != sw.writtenSize {
+				sw.log.Error(fmt.Sprintf("Written size %v did not match Content-Length header size %v. Deleting stored file.\n", sw.writtenSize, contentLength))
+				sw.Delete()
+				return errors.New(fmt.Sprintf("Size mismatch"))
+			}
+		}
+	} else {
+		if sizeOnDisk != metadata.Size {
+			sw.log.Errorf("Size has changed for file %v: %v vs. %v", sw.fd.Name(), sizeOnDisk, metadata.Size)
+			sw.Delete()
+			return errors.New("Size mismatch")
+		}
 	}
 
 	esm, err := encodeStorageMetadata(metadata)
