@@ -63,7 +63,7 @@ type StorageWriter interface {
 	http.Flusher
 	WriteHeader(int, http.Header)
 	ChangeKey(Key) error
-	Abort() error
+	Delete() error
 	WrittenFile() (*os.File, error)
 }
 
@@ -642,7 +642,7 @@ func (sw *storageWriter) SetRevalidated() {
 	sw.wasRevalidated = true
 }
 
-func (sw *storageWriter) Abort() error {
+func (sw *storageWriter) Delete() error {
 	closeErr := sw.fd.Close()
 	err := os.Remove(sw.path)
 	if err != nil {

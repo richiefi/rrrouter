@@ -471,7 +471,7 @@ type CacheWriter interface {
 	SetRedirectedURL(redir *url.URL)
 	SetRevalidated()
 	ChangeKey(Key) error
-	Abort() error
+	Delete() error
 	WrittenFile() (*os.File, error)
 }
 
@@ -510,7 +510,7 @@ func ParseStorageConfigs(cfg []byte) ([]StorageConfiguration, error) {
 type CachingResponseWriter interface {
 	http.ResponseWriter
 	http.Flusher
-	Abort() error
+	Delete() error
 	WrittenFile() (*os.File, error)
 	ChangeKey(Key) error
 	GetClientWriter() http.ResponseWriter
@@ -597,8 +597,8 @@ func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
 	return crw.cacheWriter.Close()
 }
 
-func (crw *cachingResponseWriter) Abort() error {
-	err := crw.cacheWriter.Abort()
+func (crw *cachingResponseWriter) Delete() error {
+	err := crw.cacheWriter.Delete()
 	if err != nil {
 		crw.log.WithField("error", err).Error("Could not clean up stray file after error")
 	}
