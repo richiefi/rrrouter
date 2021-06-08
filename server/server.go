@@ -6,6 +6,7 @@ import (
 	"errors"
 	"fmt"
 	apexlog "github.com/apex/log"
+	"github.com/getsentry/sentry-go"
 	"github.com/richiefi/rrrouter/caching"
 	"github.com/richiefi/rrrouter/config"
 	"github.com/richiefi/rrrouter/proxy"
@@ -53,6 +54,7 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
+		defer sentry.Recover()
 		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors)
 		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})

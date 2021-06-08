@@ -3,9 +3,11 @@ package main
 import (
 	"errors"
 	"fmt"
+	"github.com/getsentry/sentry-go"
 	"github.com/richiefi/rrrouter/caching"
 	"github.com/richiefi/rrrouter/util"
 	"io/ioutil"
+	"log"
 	"net/http"
 	"os"
 	"os/signal"
@@ -51,6 +53,18 @@ func main() {
 	ctx := kong.Parse(&cli,
 		kong.Name("rrrouter"),
 		kong.Description("Richie Request Router"))
+
+	if len(os.Getenv("SENTRY_DSN")) > 0 {
+		err := sentry.Init(sentry.ClientOptions{
+			Release:          os.Getenv("IMAGE"),
+			AttachStacktrace: true,
+		})
+		if err != nil {
+			log.Fatalf("sentry.Init: %s", err)
+		}
+		defer sentry.Flush(2 * time.Second)
+	}
+
 	err := ctx.Run(&cliContext{Debug: cli.Debug})
 	ctx.FatalIfErrorf(err)
 }

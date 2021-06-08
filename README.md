@@ -287,3 +287,7 @@ Rrrouter includes a `richie-edge-cache` response header, with values being `miss
 There's an admin endpoint, `/__SYSTEMINFO`, for checking state of the system rrrouter is running on. The endpoint requires that the `ADMIN_NAME` and `ADMIN_PASS` environment variables are set.
 
 The `/__RRROUTER/health` endpoint always returns 200 OK.
+
+## Sentry logging
+
+Set `SENTRY_DSN` in the environment to capture errors.

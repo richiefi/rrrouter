@@ -5,6 +5,7 @@ import (
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/c2h5oh/datasize"
+	"github.com/getsentry/sentry-go"
 	"github.com/richiefi/rrrouter/util"
 	"github.com/richiefi/rrrouter/yamlconfig"
 	"io"
@@ -115,13 +116,19 @@ func (c *cache) debugReaderNotifier(i int) {
 		}
 		for rk, cts := range c.waitingReaders {
 			c.logger.Infof("rn: %v has %v waiting", rk, len(cts))
+			stale := false
 			for _, ct := range cts {
 				age := time.Now().Sub(ct.time)
 				if age > time.Second*60 {
+					stale = true
 					c.logger.Infof("rn: %v with age %v", rk, age)
 				}
 				ages = append(ages, age)
 			}
+			if stale {
+				sentry.CaptureMessage(fmt.Sprintf("rn: stale: %v", rk))
+			}
+
 		}
 		if len(ages) > 0 {
 			sum := 0
