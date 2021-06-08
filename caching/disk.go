@@ -63,7 +63,7 @@ type StorageWriter interface {
 	http.Flusher
 	WriteHeader(int, http.Header)
 	ChangeKey(Key) error
-	Abort() error
+	Delete() error
 	WrittenFile() (*os.File, error)
 }
 
@@ -392,6 +392,7 @@ type storageWriter struct {
 	path           string
 	invalidated    bool
 	errored        bool
+	deleted        bool
 	closeFinisher  func(name string, size int64)
 	closeNotifier  *chan Key
 	closed         bool
@@ -498,11 +499,13 @@ func (sw *storageWriter) Close() error {
 		if sw.wasRevalidated {
 			fd, err := os.OpenFile(sw.path, os.O_RDWR, 0)
 			if err != nil {
-				sw.log.Errorf("Could not reopen file for revalidation state saving: %v", err)
+				sw.log.Errorf("Could not reopen file %v for revalidation state saving: %v", sw.path, err)
+				sw.Delete()
 				return err
 			}
 			sm, err := getStorageMetadata(fd, metadataXAttrName)
 			if err != nil {
+				sw.Delete()
 				return err
 			}
 			sm.Revalidated = sw.now().Unix()
@@ -513,26 +516,26 @@ func (sw *storageWriter) Close() error {
 		}
 	}
 
-	err := sw.fd.Close()
+	fi, err := sw.fd.Stat()
 	if err != nil {
+		sw.log.Errorf("Could not stat file %v: %v", sw.fd.Name(), err)
+		sw.Delete()
+		return err
+	}
+	sizeOnDisk := fi.Size()
+
+	err = sw.fd.Close()
+	if err != nil {
+		sw.Delete()
 		return err
 	}
 
 	if sw.invalidated {
-		err := os.Remove(sw.path)
+		err := sw.Delete()
 		if err != nil {
-			sw.log.Warnf("Could not remove invalidated path %v: %v", sw.path, err)
+			sw.log.Warnf("Could not remove invalidated file %v: %v", sw.path, err)
 		}
 		return err
-	}
-
-	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
-		if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
-			if int64(contentLength) != sw.writtenSize {
-				sw.log.Error(fmt.Sprintf("Written size %v did not match Content-Length header size %v. Deleting stored file.\n", sw.writtenSize, contentLength))
-				return sw.Abort()
-			}
-		}
 	}
 
 	var metadata StorageMetadata
@@ -562,13 +565,31 @@ func (sw *storageWriter) Close() error {
 		metadata = *revalidatedMetadata
 	}
 
+	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
+		if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
+			if int64(contentLength) != sw.writtenSize {
+				sw.log.Error(fmt.Sprintf("Written size %v did not match Content-Length header size %v. Deleting stored file.\n", sw.writtenSize, contentLength))
+				sw.Delete()
+				return errors.New(fmt.Sprintf("Size mismatch"))
+			}
+		}
+	} else {
+		if sizeOnDisk != metadata.Size {
+			sw.log.Errorf("Size has changed for file %v: %v vs. %v", sw.fd.Name(), sizeOnDisk, metadata.Size)
+			sw.Delete()
+			return errors.New("Size mismatch")
+		}
+	}
+
 	esm, err := encodeStorageMetadata(metadata)
 	if err != nil {
+		sw.Delete()
 		return err
 	}
 
 	err = xattr.Set(sw.path, metadataXAttrName, esm)
 	if err != nil {
+		sw.Delete()
 		return err
 	}
 
@@ -642,13 +663,19 @@ func (sw *storageWriter) SetRevalidated() {
 	sw.wasRevalidated = true
 }
 
-func (sw *storageWriter) Abort() error {
+func (sw *storageWriter) Delete() error {
+	if sw.deleted {
+		return nil
+	}
+
 	closeErr := sw.fd.Close()
 	err := os.Remove(sw.path)
 	if err != nil {
 		sw.log.Errorf("Could not remove path %v: %v. Close error was: %v", sw.path, err, closeErr)
 		return err
 	}
+
+	sw.deleted = true
 
 	return nil
 }

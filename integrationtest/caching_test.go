@@ -1681,7 +1681,7 @@ func (sw testStorageWriter) ChangeKey(caching.Key) error {
 	return nil
 }
 
-func (sw testStorageWriter) Abort() error {
+func (sw testStorageWriter) Delete() error {
 	return nil
 }
 

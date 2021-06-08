@@ -265,7 +265,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						}
 						writeBodyFunc = makeCachingWriteBody(rRange)
 						writer = cr.Writer
-						errCleanup = func() { _ = cr.Writer.Abort(); cache.Invalidate(key, logger) }
+						errCleanup = func() { _ = cr.Writer.Delete(); cache.Invalidate(key, logger) }
 					}
 
 					requestHandler(reqres, logger, conf)(writer, r, *alwaysInclude, statusOverride, writeBodyFunc, true, errCleanup)
@@ -355,6 +355,11 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 		defer reqres.Response.Body.Close()
 		logctx = logctx.WithField("proxiedURL", reqres.Response.Request.URL)
 
+		if w == nil {
+			// ch19238:
+			logctx.Errorf("writer has gone unexpectedly for %v", reqres.Response.Request.URL)
+			return
+		}
 		header := clearAndCopyHeaders(w, reqres.Response.Header, alwaysInclude)
 
 		var reader io.ReadCloser
