@@ -90,13 +90,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				writeError(*w, err)
 				return
 			}
-
-			rRange := getRange(r.Header)
-			shouldSkipIfNotCached := rRange != nil
-
 			if cr.Reader != nil {
 				defer cr.Reader.Close()
 			}
+
+			rRange := getRange(r.Header)
+			shouldSkipIfNotCached := rRange != nil
 
 			if cr.Metadata.Status == 304 {
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
