@@ -725,5 +725,5 @@ func contentLengthFromRange(s string) string {
 }
 
 func IsCacheableError(statusCode int) bool {
-	return statusCode >= 399 && statusCode <= 404
+	return statusCode >= 400 && statusCode <= 404
 }
