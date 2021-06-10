@@ -549,7 +549,8 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 	}
 	var cleanedHeaders http.Header
 	if statusCode == 206 {
-		statusCode = 200 // We don't write partial content to storage
+		statusCode = 200 // We don't write partial content to storage. `range` has been omitted from origin request
+		// and only the client is being served with partial content, with HTTP 206.
 		cl := contentLengthFromRange(crw.clientWriter.Header().Get("content-range"))
 		cleanedHeaders = util.DenyHeaders(crw.clientWriter.Header(), []string{"content-range"})
 		if len(cl) > 0 {
