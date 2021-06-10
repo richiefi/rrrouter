@@ -144,6 +144,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							break
 						}
 					}
+					if cr.Reader != nil {
+						defer cr.Reader.Close()
+					}
 				}
 			default:
 				break
