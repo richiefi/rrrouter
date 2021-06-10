@@ -93,22 +93,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if cr.Reader != nil {
 				defer cr.Reader.Close()
 			}
-			/*
-				s := ""
-				switch cr.Kind {
-				case caching.Found:
-					s = "found"
-				case caching.NotFoundWriter:
-					s = "writer"
-				case caching.NotFoundReader:
-					s = "reader"
-				case caching.RevalidatingWriter:
-					s = "re-writer"
-				case caching.RevalidatingReader:
-					s = "re-reader"
-				}
-				fmt.Printf("kind: %v | writer: %v, reader: %v, waitchan: %v\n", s, cr.Writer != nil, cr.Reader != nil, cr.WaitChan != nil)
-			*/
 
 			rRange := getRange(r.Header)
 			shouldSkipIfNotCached := rRange != nil
@@ -129,30 +113,36 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			switch cr.Kind {
 			case caching.NotFoundReader, caching.RevalidatingReader:
 				if cr.WaitChan != nil {
-					select {
-					case waitedKey := <-*cr.WaitChan:
-						cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
-						if err != nil {
-							writeError(*w, err)
+					ts := []int{30, 10, 5}
+					for i := 0; i < len(ts); i++ {
+						select {
+						case waitedKey := <-*cr.WaitChan:
+							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
+							if err != nil {
+								writeError(*w, err)
+								return
+							}
+							s := ""
+							switch cr.Kind {
+							case caching.Found:
+								s = "found"
+							case caching.NotFoundWriter:
+								s = "writer"
+							case caching.NotFoundReader:
+								s = "reader"
+							case caching.RevalidatingWriter:
+								s = "re-writer"
+							case caching.RevalidatingReader:
+								s = "re-reader"
+							}
+							fmt.Printf("waited kind: %v | writer: %v, reader: %v, waitchan: %v, i: %v\n", s, cr.Writer != nil, cr.Reader != nil, cr.WaitChan != nil, i)
+						case <-time.After(time.Duration(ts[i]) * time.Second):
+							writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
 							return
 						}
-						s := ""
-						switch cr.Kind {
-						case caching.Found:
-							s = "found"
-						case caching.NotFoundWriter:
-							s = "writer"
-						case caching.NotFoundReader:
-							s = "reader"
-						case caching.RevalidatingWriter:
-							s = "re-writer"
-						case caching.RevalidatingReader:
-							s = "re-reader"
+						if cr.WaitChan == nil {
+							break
 						}
-						fmt.Printf("waited kind: %v | writer: %v, reader: %v, waitchan: %v\n", s, cr.Writer != nil, cr.Reader != nil, cr.WaitChan != nil)
-					case <-time.After(30 * time.Second):
-						writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
-						return
 					}
 				}
 			default:
