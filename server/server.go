@@ -471,7 +471,7 @@ func clearAndCopyHeaders(w http.ResponseWriter, originHeader http.Header, always
 }
 
 func setRangedHeaders(rr *requestRange, contentLength int64, statusCode int, h *http.Header) (int, *http.Header) {
-	if rr == nil || statusCode != 200 || contentLength == 0 {
+	if rr == nil || statusCode != 200 || contentLength <= 0 {
 		return statusCode, h
 	}
 

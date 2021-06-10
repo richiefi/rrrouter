@@ -717,8 +717,8 @@ func contentLengthFromRange(s string) string {
 		return ""
 	}
 
-	_, err := strconv.Atoi(splat[1])
-	if err != nil {
+	i, err := strconv.Atoi(splat[1])
+	if err != nil || i < 0 {
 		return ""
 	}
 
