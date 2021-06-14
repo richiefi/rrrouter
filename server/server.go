@@ -90,13 +90,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				writeError(*w, err)
 				return
 			}
-
-			rRange := getRange(r.Header)
-			shouldSkipIfNotCached := rRange != nil
-
 			if cr.Reader != nil {
 				defer cr.Reader.Close()
 			}
+
+			rRange := getRange(r.Header)
+			shouldSkipIfNotCached := rRange != nil
 
 			if cr.Metadata.Status == 304 {
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
@@ -110,170 +109,51 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					alwaysInclude.Set(hname, hval)
 				}
 			}
-			if cr.Writer != nil || cr.WaitChan != nil {
-				waited := false
+
+			switch cr.Kind {
+			case caching.NotFoundReader, caching.RevalidatingReader:
 				if cr.WaitChan != nil {
-					select {
-					case waitedKey := <-*cr.WaitChan:
-						waited = true
-						cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
-						if err != nil {
-							writeError(*w, err)
-							return
-						}
-					case <-time.After(30 * time.Second):
-						writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
-						return
-					}
-				}
-
-				var writeBodyFunc BodyWriter
-				var writer http.ResponseWriter
-				var errCleanup func()
-
-				if waited && cr.Reader != nil {
-					if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
-						rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
-						if err != nil {
-							writeError(*w, err)
-							return
-						}
-						cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
-						return
-					}
-
-					if cr.Kind == caching.RevalidatingReader || cr.Kind == caching.Found {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
-					} else {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
-					}
-					clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
-					(*w).WriteHeader(cr.Metadata.Status)
-
-					err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
-					if err != nil {
-						writeError(*w, err)
-					}
-					return
-				} else if waited && cr.Reader == nil && shouldSkipIfNotCached {
-					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
-					if err != nil {
-						writeError(*w, err)
-						return
-					}
-					for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
-						for _, hval := range hvals {
-							alwaysInclude.Set(hname, hval)
-						}
-					}
-					requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil, writeBody, false, nil)
-					return
-				} else {
-					if rRange != nil {
-						r.Header.Del("range")
-					}
-					revalidatedWithHeader := ""
-					if cr.Kind == caching.RevalidatingWriter {
-						if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
-							r.Header.Set("if-none-match", etag)
-							revalidatedWithHeader = "if-none-match"
-						} else if lastModified := cr.Metadata.Header.Get("last-modified"); len(lastModified) > 0 {
-							r.Header.Set("if-modified-since", lastModified)
-							revalidatedWithHeader = "if-modified-since"
-						}
-					} else if cr.Kind == caching.NotFoundWriter {
-						r.Header.Del("if-none-match")
-						r.Header.Del("if-modified-since")
-					}
-					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
-					if err != nil {
-						cache.Invalidate(key, logger)
-						writeError(*w, err)
-						return
-					}
-					rf = reqres.FinalRoutingFlavors
-					for hname, hvals := range rf.ResponseHeaders {
-						for _, hval := range hvals {
-							alwaysInclude.Set(hname, hval)
-						}
-					}
-					if reqres.Response.StatusCode == 304 && len(revalidatedWithHeader) > 0 {
-						r.Header.Del(revalidatedWithHeader)
-						err := cr.Writer.SetRevalidatedAndClose()
-						if err != nil {
-							writeError(*w, err)
-							return
-						}
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-						cachingFunc(w, r, nil, alwaysInclude, &rf)
-						return
-					}
-
-					var statusOverride *int
-					if rRange != nil && reqres.Response.StatusCode == 200 {
-						var s int
-						s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
-						statusOverride = &s
-					}
-					dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
-					if dirs.DoNotCache() {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
-						cache.Invalidate(key, logger)
-						writeBodyFunc = writeBody
-						writer = *w
-					} else if reqres.RedirectedURL == nil && util.IsRedirect(reqres.Response.StatusCode) {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
-						cache.Invalidate(key, logger)
-						writeBodyFunc = writeBody
-						writer = *w
-					} else {
-						if cr.Kind == caching.RevalidatingWriter {
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-						} else {
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
-						}
-						alwaysInclude.Set(headerAge, "0")
-						if reqres.RedirectedURL != nil {
-							if urlEquals(reqres.RedirectedURL, r.URL) {
-								err = usererror.CreateError(508, "Loop detected")
-								cache.Invalidate(key, logger)
+					ts := []int{30, 10, 5}
+					for i := 0; i < len(ts); i++ {
+						select {
+						case waitedKey := <-*cr.WaitChan:
+							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
+							if err != nil {
 								writeError(*w, err)
 								return
 							}
-							redirectedUrl := util.RedirectedURL(r, reqres.RedirectedURL)
-							redirectedUrl.Scheme = reqres.OriginalURL.Scheme
-							redirectedUrl.Host = reqres.OriginalURL.Host
-							cr.Writer.SetRedirectedURL(redirectedUrl)
-							if rf.FlattenRedirects {
-								rr := r.Clone(r.Context())
-								rr.URL = redirectedUrl
-								rr.Host = redirectedUrl.Host
-								rr.RequestURI = reqres.RedirectedURL.RequestURI()
-								cr.Writer.SetClientWritesDisabled()
-								cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+							s := ""
+							switch cr.Kind {
+							case caching.Found:
+								s = "found"
+							case caching.NotFoundWriter:
+								s = "writer"
+							case caching.NotFoundReader:
+								s = "reader"
+							case caching.RevalidatingWriter:
+								s = "re-writer"
+							case caching.RevalidatingReader:
+								s = "re-reader"
 							}
+							fmt.Printf("waited kind: %v | writer: %v, reader: %v, waitchan: %v, i: %v\n", s, cr.Writer != nil, cr.Reader != nil, cr.WaitChan != nil, i)
+						case <-time.After(time.Duration(ts[i]) * time.Second):
+							writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
+							return
 						}
-						if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
-							for _, k := range keys {
-								if k.HasFullOrigin() {
-									err = cr.Writer.ChangeKey(k)
-									if err != nil {
-										cache.Invalidate(key, logger)
-										writeError(*w, err)
-										return
-									}
-								}
-							}
+						if cr.WaitChan == nil {
+							break
 						}
-						writeBodyFunc = makeCachingWriteBody(rRange)
-						writer = cr.Writer
-						errCleanup = func() { _ = cr.Writer.Delete(); cache.Invalidate(key, logger) }
 					}
-
-					requestHandler(reqres, logger, conf)(writer, r, *alwaysInclude, statusOverride, writeBodyFunc, true, errCleanup)
-					return
+					if cr.Reader != nil {
+						defer cr.Reader.Close()
+					}
 				}
-			} else {
+			default:
+				break
+			}
+
+			switch cr.Kind {
+			case caching.Found:
 				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
@@ -295,6 +175,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					cl, _ := strconv.Atoi(cr.Metadata.Header.Get("content-length"))
 					var s int
 					s, alwaysInclude = setRangedHeaders(rRange, int64(cl), cr.Metadata.Status, alwaysInclude)
+					if s >= 400 {
+						(*w).WriteHeader(s)
+						return
+					}
 					statusOverride = &s
 				}
 
@@ -310,9 +194,161 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					cache.Invalidate(key, logger)
 					writeError(*w, err)
 				}
-			}
+				return
+			case caching.NotFoundReader, caching.RevalidatingReader:
+				if cr.Reader == nil && shouldSkipIfNotCached {
+					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
+					if err != nil {
+						writeError(*w, err)
+						return
+					}
+					for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
+						for _, hval := range hvals {
+							alwaysInclude.Set(hname, hval)
+						}
+					}
+					requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil, writeBody, false, nil)
+					return
+				} else if cr.Reader == nil {
+					msg := fmt.Sprintf("Reader not found after waiting. cr: %v / %v", cr.Kind, cr)
+					logctx.Errorf(msg)
+					sentry.CaptureMessage(msg)
+					return
+				}
 
-			return
+				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
+					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
+					if err != nil {
+						writeError(*w, err)
+						return
+					}
+					cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+					return
+				}
+
+				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+
+				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				(*w).WriteHeader(cr.Metadata.Status)
+
+				err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
+				if err != nil {
+					writeError(*w, err)
+				}
+				return
+			case caching.NotFoundWriter, caching.RevalidatingWriter:
+				var writeBodyFunc BodyWriter
+				var writer http.ResponseWriter
+				var errCleanup func()
+
+				if rRange != nil {
+					r.Header.Del("range")
+				}
+				revalidatedWithHeader := ""
+				if cr.Kind == caching.RevalidatingWriter {
+					if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
+						r.Header.Set("if-none-match", etag)
+						revalidatedWithHeader = "if-none-match"
+					} else if lastModified := cr.Metadata.Header.Get("last-modified"); len(lastModified) > 0 {
+						r.Header.Set("if-modified-since", lastModified)
+						revalidatedWithHeader = "if-modified-since"
+					}
+				} else if cr.Kind == caching.NotFoundWriter {
+					r.Header.Del("if-none-match")
+					r.Header.Del("if-modified-since")
+				}
+				reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
+				if err != nil {
+					cache.Invalidate(key, logger)
+					writeError(*w, err)
+					return
+				}
+				rf = reqres.FinalRoutingFlavors
+				for hname, hvals := range rf.ResponseHeaders {
+					for _, hval := range hvals {
+						alwaysInclude.Set(hname, hval)
+					}
+				}
+				if reqres.Response.StatusCode == 304 && len(revalidatedWithHeader) > 0 {
+					r.Header.Del(revalidatedWithHeader)
+					err := cr.Writer.SetRevalidatedAndClose()
+					if err != nil {
+						writeError(*w, err)
+						return
+					}
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+					cachingFunc(w, r, nil, alwaysInclude, &rf)
+					return
+				}
+
+				var statusOverride *int
+				if rRange != nil && reqres.Response.StatusCode == 200 {
+					var s int
+					s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
+					if s >= 400 {
+						(*w).WriteHeader(s)
+						return
+					}
+					statusOverride = &s
+				}
+				dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
+				if dirs.DoNotCache() {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
+					cache.Invalidate(key, logger)
+					writeBodyFunc = writeBody
+					writer = *w
+				} else if reqres.RedirectedURL == nil && util.IsRedirect(reqres.Response.StatusCode) {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+					cache.Invalidate(key, logger)
+					writeBodyFunc = writeBody
+					writer = *w
+				} else {
+					if cr.Kind == caching.RevalidatingWriter {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+					} else {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
+					}
+					alwaysInclude.Set(headerAge, "0")
+					if reqres.RedirectedURL != nil {
+						if urlEquals(reqres.RedirectedURL, r.URL) {
+							err = usererror.CreateError(508, "Loop detected")
+							cache.Invalidate(key, logger)
+							writeError(*w, err)
+							return
+						}
+						redirectedUrl := util.RedirectedURL(r, reqres.RedirectedURL)
+						redirectedUrl.Scheme = reqres.OriginalURL.Scheme
+						redirectedUrl.Host = reqres.OriginalURL.Host
+						cr.Writer.SetRedirectedURL(redirectedUrl)
+						if rf.FlattenRedirects {
+							rr := r.Clone(r.Context())
+							rr.URL = redirectedUrl
+							rr.Host = redirectedUrl.Host
+							rr.RequestURI = reqres.RedirectedURL.RequestURI()
+							cr.Writer.SetClientWritesDisabled()
+							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+						}
+					}
+					if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
+						for _, k := range keys {
+							if k.HasFullOrigin() {
+								err = cr.Writer.ChangeKey(k)
+								if err != nil {
+									cache.Invalidate(key, logger)
+									writeError(*w, err)
+									return
+								}
+							}
+						}
+					}
+					writeBodyFunc = makeCachingWriteBody(rRange)
+					writer = cr.Writer
+					errCleanup = func() { _ = cr.Writer.Delete(); cache.Invalidate(key, logger) }
+				}
+
+				requestHandler(reqres, logger, conf)(writer, r, *alwaysInclude, statusOverride, writeBodyFunc, true, errCleanup)
+				return
+			}
 		}
 		cachingFunc(&ow, or, nil, nil, nil)
 	}
@@ -446,8 +482,12 @@ func clearAndCopyHeaders(w http.ResponseWriter, originHeader http.Header, always
 }
 
 func setRangedHeaders(rr *requestRange, contentLength int64, statusCode int, h *http.Header) (int, *http.Header) {
-	if rr == nil || statusCode != 200 || contentLength == 0 {
+	if rr == nil || statusCode != 200 || contentLength <= 0 {
 		return statusCode, h
+	}
+
+	if (rr.s != nil && *rr.s > contentLength-1) || (rr.e != nil && *rr.e > contentLength-1) {
+		return 416, h
 	}
 
 	h.Set("content-length", strconv.FormatInt(rr.size(contentLength), 10))

@@ -692,5 +692,5 @@ func destinationString(u *url.URL) string {
 }
 
 func is4xxError(s int) bool {
-	return s >= 399 && s <= 499
+	return s >= 400 && s <= 499
 }
