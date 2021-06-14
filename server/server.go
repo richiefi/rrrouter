@@ -122,20 +122,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 								writeError(*w, err)
 								return
 							}
-							s := ""
-							switch cr.Kind {
-							case caching.Found:
-								s = "found"
-							case caching.NotFoundWriter:
-								s = "writer"
-							case caching.NotFoundReader:
-								s = "reader"
-							case caching.RevalidatingWriter:
-								s = "re-writer"
-							case caching.RevalidatingReader:
-								s = "re-reader"
-							}
-							fmt.Printf("waited kind: %v | writer: %v, reader: %v, waitchan: %v, i: %v\n", s, cr.Writer != nil, cr.Reader != nil, cr.WaitChan != nil, i)
 						case <-time.After(time.Duration(ts[i]) * time.Second):
 							writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
 							return
