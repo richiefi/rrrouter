@@ -175,6 +175,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					cl, _ := strconv.Atoi(cr.Metadata.Header.Get("content-length"))
 					var s int
 					s, alwaysInclude = setRangedHeaders(rRange, int64(cl), cr.Metadata.Status, alwaysInclude)
+					if s >= 400 {
+						(*w).WriteHeader(s)
+						return
+					}
 					statusOverride = &s
 				}
 
@@ -281,6 +285,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				if rRange != nil && reqres.Response.StatusCode == 200 {
 					var s int
 					s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
+					if s >= 400 {
+						(*w).WriteHeader(s)
+						return
+					}
 					statusOverride = &s
 				}
 				dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
@@ -476,6 +484,10 @@ func clearAndCopyHeaders(w http.ResponseWriter, originHeader http.Header, always
 func setRangedHeaders(rr *requestRange, contentLength int64, statusCode int, h *http.Header) (int, *http.Header) {
 	if rr == nil || statusCode != 200 || contentLength <= 0 {
 		return statusCode, h
+	}
+
+	if (rr.s != nil && *rr.s > contentLength-1) || (rr.e != nil && *rr.e > contentLength-1) {
+		return 416, h
 	}
 
 	h.Set("content-length", strconv.FormatInt(rr.size(contentLength), 10))
