@@ -634,16 +634,21 @@ func normalizeEtag(s string) string {
 }
 
 type CacheControlDirectives struct {
-	NoCache bool
-	NoStore bool
-	MaxAge  *int64
-	SMaxAge *int64
-	Private bool
-	vary    []string
+	NoCache      bool
+	NoStore      bool
+	MaxAge       *int64
+	SMaxAge      *int64
+	Private      bool
+	staleIfError *int64
+	vary         []string
 }
 
 func (ccd CacheControlDirectives) DoNotCache() bool {
 	return ccd.Private || ccd.NoStore || (ccd.SMaxAge != nil && *ccd.SMaxAge == 0) || (ccd.MaxAge != nil && *ccd.MaxAge == 0)
+}
+
+func (ccd CacheControlDirectives) CanStaleIfError(age int64) bool {
+	return ccd.staleIfError != nil && *ccd.staleIfError > age
 }
 
 func (ccd CacheControlDirectives) VaryByOrigin() bool {
@@ -680,6 +685,12 @@ func GetCacheControlDirectives(h http.Header) CacheControlDirectives {
 					if err == nil {
 						sMaxAge64 := int64(sMaxAge)
 						dirs.SMaxAge = &sMaxAge64
+					}
+				case "stale-if-error":
+					staleIfError, err := strconv.Atoi(v)
+					if err == nil {
+						staleIfError := int64(staleIfError)
+						dirs.staleIfError = &staleIfError
 					}
 				}
 			} else {
