@@ -272,6 +272,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					var s int
 					s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
 					if s >= 400 {
+						cache.Invalidate(key, logger)
 						(*w).WriteHeader(s)
 						return
 					}
