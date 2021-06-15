@@ -254,18 +254,19 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						alwaysInclude.Set(hname, hval)
 					}
 				}
-				if reqres.Response.StatusCode == 304 && len(revalidatedWithHeader) > 0 {
+				if len(revalidatedWithHeader) > 0 {
 					r.Header.Del(revalidatedWithHeader)
-					err := cr.Writer.SetRevalidatedAndClose()
-					if err != nil {
-						writeError(*w, err)
+					if reqres.Response.StatusCode == 304 {
+						err := cr.Writer.SetRevalidatedAndClose()
+						if err != nil {
+							writeError(*w, err)
+							return
+						}
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+						cachingFunc(w, r, nil, alwaysInclude, &rf, false)
 						return
 					}
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-					cachingFunc(w, r, nil, alwaysInclude, &rf)
-					return
 				}
-
 				var statusOverride *int
 				if rRange != nil && reqres.Response.StatusCode == 200 {
 					var s int
