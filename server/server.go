@@ -64,7 +64,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			}
 			shouldSkip := len(r.Header.Get("authorization")) > 0
 			if len(rf.CacheId) == 0 && frf != nil {
-				fmt.Println("Inheriting routingflavors", *frf)
 				rf = *frf
 			}
 			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
