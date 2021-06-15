@@ -20,7 +20,7 @@ import (
 )
 
 type Storage interface {
-	GetWriter(Key, bool, *chan Key) StorageWriter
+	GetWriter(Key, bool, *chan KeyInfo) StorageWriter
 	Get([]Key) (*os.File, StorageMetadata, Key, error)
 	Id() string
 	Update(cfg StorageConfiguration)
@@ -140,7 +140,7 @@ type purgeableItems struct {
 	size               int64
 }
 
-func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan Key) StorageWriter {
+func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan KeyInfo) StorageWriter {
 	fp := filepath.Join(s.path, key.FsName())
 	exists, err := pathExists(fp)
 	if err != nil {
@@ -394,7 +394,7 @@ type storageWriter struct {
 	errored           bool
 	deleted           bool
 	closeFinisher     func(name string, size int64)
-	closeNotifier     *chan Key
+	closeNotifier     *chan KeyInfo
 	closed            bool
 	fd                *os.File
 	writtenStatus     int
@@ -405,6 +405,7 @@ type storageWriter struct {
 	log               *apexlog.Logger
 	wasRevalidated    bool
 	revalidateErrored bool
+	canStaleIfError   bool
 	now               func() time.Time
 }
 
@@ -612,11 +613,15 @@ func (sw *storageWriter) finishAndNotify() {
 }
 
 func (sw *storageWriter) notify() {
+	canUseStale := false
+	if sw.revalidateErrored && sw.canStaleIfError {
+		canUseStale = true
+	}
 	if sw.closeNotifier != nil {
-		*sw.closeNotifier <- sw.key
+		*sw.closeNotifier <- KeyInfo{Key: sw.key, CanUseStale: canUseStale}
 		if sw.oldKey != nil {
-			sw.log.Debugf("Had old key: %v", *sw.oldKey)
-			*sw.closeNotifier <- *sw.oldKey
+			sw.log.Debugf("Had old Key: %v", *sw.oldKey)
+			*sw.closeNotifier <- KeyInfo{Key: *sw.oldKey, CanUseStale: canUseStale}
 		}
 	}
 }
@@ -671,8 +676,9 @@ func (sw *storageWriter) SetRevalidated() {
 	sw.wasRevalidated = true
 }
 
-func (sw *storageWriter) SetRevalidateErrored() {
+func (sw *storageWriter) SetRevalidateErrored(canStaleIfError bool) {
 	sw.revalidateErrored = true
+	sw.canStaleIfError = canStaleIfError
 }
 
 func (sw *storageWriter) Delete() error {

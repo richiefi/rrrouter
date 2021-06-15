@@ -115,8 +115,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					ts := []int{30, 10, 5}
 					for i := 0; i < len(ts); i++ {
 						select {
-						case waitedKey := <-*cr.WaitChan:
-							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, skipRevalidate, []caching.Key{waitedKey}, *w, logger)
+						case waitedKeyInfo := <-*cr.WaitChan:
+							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, waitedKeyInfo.CanUseStale, []caching.Key{waitedKeyInfo.Key}, *w, logger)
 							if err != nil {
 								writeError(*w, err)
 								return
@@ -151,7 +151,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 
 				if len(alwaysInclude.Get(caching.HeaderRrrouterCacheStatus)) == 0 {
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+					if cr.IsStale {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "stale")
+					} else {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+					}
 				}
 				alwaysInclude.Set(headerAge, strconv.Itoa(int(cr.Age)))
 
@@ -294,7 +298,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						if reqres.Response.StatusCode >= 400 {
 							dirs = caching.GetCacheControlDirectives(cr.Metadata.Header)
 							if dirs.CanStaleIfError(cr.Age) {
-								err := cr.Writer.SetRevalidateErroredAndClose()
+								err := cr.Writer.SetRevalidateErroredAndClose(true)
 								if err != nil {
 									writeError(*w, err)
 									return

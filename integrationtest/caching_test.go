@@ -87,7 +87,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -184,7 +184,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		getCalled += 1
 		if getCalled == 2 {
 			f := tempFile(t, []byte("ab"))
-			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
+			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 		}
 
 		sw := NewTestStorageWriter(
@@ -204,7 +204,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		cw, _ := sw.(caching.CacheWriter)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -726,6 +726,143 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
 	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
+}
+
+func TestCache_stale_if_error_used(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	originStatus := 0
+	hdrs = map[string]string{"cache-control": "s-maxage=60, max-age=60, stale-if-error=600"}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		if timesOriginHit == 2 {
+			originStatus = 500
+			w.WriteHeader(originStatus)
+			return
+		}
+		originStatus = 200
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(originStatus)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 1, timesOriginHit)
+	age, err := strconv.Atoi(resp.Header.Get("age"))
+	require.Nil(t, err)
+	require.True(t, age >= 0 && age <= 1)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Minute * 2)
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 2, timesOriginHit)
+	require.Equal(t, 500, originStatus)
+	require.Equal(t, []byte("ab"), body)
+	age, err = strconv.Atoi(resp.Header.Get("age"))
+	require.Nil(t, err)
+	require.True(t, age >= 120 && age <= 121)
+	require.Equal(t, "stale", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Second * 30)
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
+}
+
+func TestCache_stale_if_error_readers_get_stale(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	originStatus := 0
+	hdrs = map[string]string{"cache-control": "s-maxage=60, max-age=60, stale-if-error=600"}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		if timesOriginHit >= 2 {
+			time.Sleep(time.Millisecond * 200)
+			originStatus = 500
+			fmt.Println("returning 500")
+			w.WriteHeader(originStatus)
+			return
+		}
+		originStatus = 200
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		fmt.Println("returning 200")
+		w.WriteHeader(originStatus)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 1, timesOriginHit)
+	age, err := strconv.Atoi(resp.Header.Get("age"))
+	require.Nil(t, err)
+	require.True(t, age >= 0 && age <= 1)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Minute * 2)
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte("ab"), body)
+			age, err = strconv.Atoi(resp.Header.Get("age"))
+			require.True(t, age >= 120 && age <= 121)
+			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
+			wg.Done()
+		}()
+		if i == 0 {
+			time.Sleep(time.Millisecond * 100)
+		}
+	}
+	wg.Wait()
+	stale := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "stale" {
+			stale += 1
+		}
+	}
+	require.Equal(t, 3, stale)
+	require.Equal(t, 2, timesOriginHit)
 }
 
 func TestCache_cache_control_no_store_not_cached(t *testing.T) {
@@ -1344,7 +1481,7 @@ func TestCache_flattened_relative_redirects_use_rule_destination_host(t *testing
 		cw, _ := sw.(caching.CacheWriter)
 		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
 	})
 
 	listener = listenerWithCache(tc, rules, sh.Logger, testConfig())
@@ -1591,13 +1728,13 @@ type testCache struct {
 	getWriter   func(cacheId string, k caching.Key, revalidate bool) caching.CacheWriter
 }
 
-func (c *testCache) Get(s string, ri int, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
+func (c *testCache) Get(s string, ri int, skipRevalidate bool, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 	if s != c.cacheId {
-		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, keys[0], nil
 	}
 
 	if e := c.cachedEntry; e != nil {
-		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age)}, keys[0], nil
+		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age), false}, keys[0], nil
 	}
 
 	return c.get(s, keys, w, l)
@@ -1612,7 +1749,7 @@ type testStorage struct {
 	queriedKeys func(caching.Key)
 }
 
-func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.Key) caching.StorageWriter {
+func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.KeyInfo) caching.StorageWriter {
 	return ts.s.GetWriter(k, r, c)
 }
 
@@ -1675,6 +1812,9 @@ func (sw testStorageWriter) SetRedirectedURL(redir *url.URL) {
 }
 
 func (sw testStorageWriter) SetRevalidated() {
+}
+
+func (sw testStorageWriter) SetRevalidateErrored(canStaleIfError bool) {
 }
 
 func (sw testStorageWriter) ChangeKey(caching.Key) error {

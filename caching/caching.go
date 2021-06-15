@@ -53,7 +53,7 @@ func newCache(storages []*Storage, logger *apexlog.Logger, now func() time.Time)
 		now:                now,
 	}
 
-	closeNotif := make(chan Key)
+	closeNotif := make(chan KeyInfo)
 	c.closeNotifier = &closeNotif
 
 	go c.readerNotifier()
@@ -72,11 +72,11 @@ type cache struct {
 	storages           []*Storage
 	logger             *apexlog.Logger
 	now                func() time.Time
-	closeNotifier      *chan Key
+	closeNotifier      *chan KeyInfo
 }
 
 type chanWithTime struct {
-	ch   *chan Key
+	ch   *chan KeyInfo
 	time time.Time
 }
 
@@ -86,15 +86,16 @@ func (c *cache) readerNotifier() {
 	}
 
 	for {
-		c.logger.Debugf("readerNotifier waiting for key")
-		k := <-*c.closeNotifier
-		c.logger.Debugf("readerNotifier got key: %v", k)
+		c.logger.Debugf("readerNotifier waiting for Key")
+		ki := <-*c.closeNotifier
+		k := ki.Key
+		c.logger.Debugf("readerNotifier got Key: %v", k)
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
 			for i, ct := range readers {
 				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
-				*ct.ch <- k
+				*ct.ch <- ki
 			}
 			delete(c.waitingReaders, rk)
 		}
@@ -164,8 +165,8 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 	rc, sm, k, err := (*s).Get(keys)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching key %v\n", (*s).Id(), k.FsName()))
-			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0}, k, err
+			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching Key %v\n", (*s).Id(), k.FsName()))
+			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, IsStale: false}, k, err
 		}
 		k = notFoundPreferredKey(keys)
 		logctx.Debugf("Miss: %v // %v", k, k.FsName())
@@ -194,13 +195,13 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}
 		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
 			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
 			if mdModifiedSince == modifiedSince {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}
 		}
 	}
@@ -229,7 +230,8 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		shouldRevalidate = expiresTime.Unix() <= c.now().Unix()
 	}
 
-	if skipRevalidate {
+	isStale := shouldRevalidate
+	if shouldRevalidate && skipRevalidate {
 		shouldRevalidate = false
 	}
 
@@ -245,7 +247,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		return cr, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age}, k, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
 }
 
 func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, logctx *apexlog.Logger) CacheResult {
@@ -254,7 +256,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 	c.logger.Debugf("Checking if %v exists", rk)
 	if _, exists := c.waitingReaders[rk]; exists {
 		defer c.waitingReadersLock.Unlock()
-		wc := make(chan Key, 1)
+		wc := make(chan KeyInfo, 1)
 		ct := chanWithTime{
 			ch:   &wc,
 			time: time.Now(),
@@ -267,7 +269,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		} else {
 			kind = NotFoundReader
 		}
-		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0}
+		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0, false}
 	} else {
 		c.waitingReaders[rk] = make([]*chanWithTime, 0)
 		defer c.waitingReadersLock.Unlock()
@@ -279,7 +281,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		} else {
 			kind = NotFoundWriter
 		}
-		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0}
+		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0, false}
 
 	}
 }
@@ -321,7 +323,7 @@ func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 		return
 	}
 
-	*c.closeNotifier <- k
+	*c.closeNotifier <- KeyInfo{Key: k}
 }
 
 func (c *cache) getWriter(cacheId string, k Key, revalidate bool) CacheWriter {
@@ -462,9 +464,15 @@ type CacheResult struct {
 	Kind     CacheResultKind
 	Reader   *os.File
 	Writer   CachingResponseWriter
-	WaitChan *chan Key
+	WaitChan *chan KeyInfo
 	Metadata CacheMetadata
 	Age      int64
+	IsStale  bool
+}
+
+type KeyInfo struct {
+	Key         Key
+	CanUseStale bool
 }
 
 type Writer interface {
@@ -482,7 +490,7 @@ type CacheWriter interface {
 	WriteHeader(statusCode int, header http.Header)
 	SetRedirectedURL(redir *url.URL)
 	SetRevalidated()
-	SetRevalidateErrored()
+	SetRevalidateErrored(bool)
 	ChangeKey(Key) error
 	Delete() error
 	WrittenFile() (*os.File, error)
@@ -532,7 +540,7 @@ type CachingResponseWriter interface {
 	GetClientWritesDisabled() bool
 	SetRedirectedURL(*url.URL)
 	SetRevalidatedAndClose() error
-	SetRevalidateErroredAndClose() error
+	SetRevalidateErroredAndClose(bool) error
 }
 
 type cachingResponseWriter struct {
@@ -612,8 +620,8 @@ func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
 	return crw.cacheWriter.Close()
 }
 
-func (crw *cachingResponseWriter) SetRevalidateErroredAndClose() error {
-	crw.cacheWriter.SetRevalidateErrored()
+func (crw *cachingResponseWriter) SetRevalidateErroredAndClose(canStaleIfError bool) error {
+	crw.cacheWriter.SetRevalidateErrored(canStaleIfError)
 	return crw.cacheWriter.Close()
 }
 
