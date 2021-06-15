@@ -386,25 +386,26 @@ func (s *storage) purgeableItemNames(purgeBytes int64) purgeableItems {
 }
 
 type storageWriter struct {
-	key            Key
-	oldKey         *Key
-	root           string
-	path           string
-	invalidated    bool
-	errored        bool
-	deleted        bool
-	closeFinisher  func(name string, size int64)
-	closeNotifier  *chan Key
-	closed         bool
-	fd             *os.File
-	writtenStatus  int
-	responseHeader http.Header
-	redirectedURL  *url.URL
-	created        int64
-	writtenSize    int64
-	log            *apexlog.Logger
-	wasRevalidated bool
-	now            func() time.Time
+	key               Key
+	oldKey            *Key
+	root              string
+	path              string
+	invalidated       bool
+	errored           bool
+	deleted           bool
+	closeFinisher     func(name string, size int64)
+	closeNotifier     *chan Key
+	closed            bool
+	fd                *os.File
+	writtenStatus     int
+	responseHeader    http.Header
+	redirectedURL     *url.URL
+	created           int64
+	writtenSize       int64
+	log               *apexlog.Logger
+	wasRevalidated    bool
+	revalidateErrored bool
+	now               func() time.Time
 }
 
 func (sw *storageWriter) Seek(offset int64, whence int) (int64, error) {
@@ -492,6 +493,9 @@ func (sw *storageWriter) Close() error {
 		return nil
 	} else if sw.errored {
 		return errors.New("Close called for errored writer")
+	} else if sw.revalidateErrored {
+		sw.finishAndNotify()
+		return nil
 	}
 
 	var revalidatedMetadata *StorageMetadata
@@ -593,14 +597,18 @@ func (sw *storageWriter) Close() error {
 		return err
 	}
 
+	sw.finishAndNotify()
+	sw.closed = true
+
+	return err
+}
+
+func (sw *storageWriter) finishAndNotify() {
 	if sw.closeFinisher != nil {
 		sw.closeFinisher(sw.key.FsName(), sw.writtenSize)
 	}
 
 	sw.notify()
-	sw.closed = true
-
-	return err
 }
 
 func (sw *storageWriter) notify() {
@@ -661,6 +669,10 @@ func (sw *storageWriter) SetRedirectedURL(redir *url.URL) {
 
 func (sw *storageWriter) SetRevalidated() {
 	sw.wasRevalidated = true
+}
+
+func (sw *storageWriter) SetRevalidateErrored() {
+	sw.revalidateErrored = true
 }
 
 func (sw *storageWriter) Delete() error {

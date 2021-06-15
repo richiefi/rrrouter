@@ -20,7 +20,7 @@ import (
 )
 
 type Cache interface {
-	Get(string, int, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
+	Get(string, int, bool, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
 	Invalidate(Key, *apexlog.Logger)
@@ -159,7 +159,7 @@ func notFoundPreferredKey(keys []Key) Key {
 	return keys[0]
 }
 
-func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
+func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
 	s := c.storageWithCacheId(cacheId)
 	rc, sm, k, err := (*s).Get(keys)
 	if err != nil {
@@ -187,6 +187,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 	shouldRevalidate := false
 	if forceRevalidate != 0 {
 		shouldRevalidate = age >= int64(forceRevalidate)
+		skipRevalidate = false
 	}
 
 	if !shouldRevalidate {
@@ -226,6 +227,10 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 			break
 		}
 		shouldRevalidate = expiresTime.Unix() <= c.now().Unix()
+	}
+
+	if skipRevalidate {
+		shouldRevalidate = false
 	}
 
 	if shouldRevalidate {
@@ -477,6 +482,7 @@ type CacheWriter interface {
 	WriteHeader(statusCode int, header http.Header)
 	SetRedirectedURL(redir *url.URL)
 	SetRevalidated()
+	SetRevalidateErrored()
 	ChangeKey(Key) error
 	Delete() error
 	WrittenFile() (*os.File, error)
@@ -526,6 +532,7 @@ type CachingResponseWriter interface {
 	GetClientWritesDisabled() bool
 	SetRedirectedURL(*url.URL)
 	SetRevalidatedAndClose() error
+	SetRevalidateErroredAndClose() error
 }
 
 type cachingResponseWriter struct {
@@ -602,6 +609,11 @@ func (crw *cachingResponseWriter) SetRedirectedURL(redir *url.URL) {
 
 func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
 	crw.cacheWriter.SetRevalidated()
+	return crw.cacheWriter.Close()
+}
+
+func (crw *cachingResponseWriter) SetRevalidateErroredAndClose() error {
+	crw.cacheWriter.SetRevalidateErrored()
 	return crw.cacheWriter.Close()
 }
 

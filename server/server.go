@@ -55,8 +55,8 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
 		defer sentry.Recover()
-		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors)
-		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors) {
+		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors, bool)
+		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
 			if alwaysInclude == nil {
@@ -84,7 +84,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			}
 
 			keys := caching.KeysFromRequest(r)
-			cr, key, err := cache.Get(rf.CacheId, rf.ForceRevalidate, keys, *w, logger)
+			cr, key, err := cache.Get(rf.CacheId, rf.ForceRevalidate, skipRevalidate, keys, *w, logger)
 			if err != nil {
 				cache.Invalidate(key, logger)
 				writeError(*w, err)
@@ -117,7 +117,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					for i := 0; i < len(ts); i++ {
 						select {
 						case waitedKey := <-*cr.WaitChan:
-							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, []caching.Key{waitedKey}, *w, logger)
+							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, skipRevalidate, []caching.Key{waitedKey}, *w, logger)
 							if err != nil {
 								writeError(*w, err)
 								return
@@ -147,7 +147,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, nil, &rf)
+					cachingFunc(w, rr, rr.URL, nil, &rf, false)
 					return
 				}
 
@@ -208,7 +208,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+					cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
 					return
 				}
 
@@ -291,6 +291,19 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					writer = *w
 				} else {
 					if cr.Kind == caching.RevalidatingWriter {
+						if reqres.Response.StatusCode >= 400 {
+							dirs = caching.GetCacheControlDirectives(cr.Metadata.Header)
+							if dirs.CanStaleIfError(cr.Age) {
+								err := cr.Writer.SetRevalidateErroredAndClose()
+								if err != nil {
+									writeError(*w, err)
+									return
+								}
+								alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "stale")
+								cachingFunc(w, r, nil, alwaysInclude, &rf, true)
+								return
+							}
+						}
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 					} else {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
@@ -313,7 +326,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							rr.Host = redirectedUrl.Host
 							rr.RequestURI = reqres.RedirectedURL.RequestURI()
 							cr.Writer.SetClientWritesDisabled()
-							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf)
+							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
 						}
 					}
 					if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
@@ -337,7 +350,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			}
 		}
-		cachingFunc(&ow, or, nil, nil, nil)
+		cachingFunc(&ow, or, nil, nil, nil, false)
 	}
 }
 
