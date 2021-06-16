@@ -170,7 +170,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		}
 		k = notFoundPreferredKey(keys)
 		logctx.Debugf("Miss: %v // %v", k, k.FsName())
-		cr := c.getReaderOrWriter(cacheId, k, w, false, logctx)
+		cr := c.getReaderOrWriter(cacheId, k, w, false, false, logctx)
 		return cr, k, nil
 	}
 
@@ -206,8 +206,8 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		}
 	}
 
+	dirs := GetCacheControlDirectives(sm.ResponseHeader)
 	if !shouldRevalidate {
-		dirs := GetCacheControlDirectives(sm.ResponseHeader)
 		if dirs.SMaxAge != nil {
 			shouldRevalidate = *dirs.SMaxAge <= age
 		} else if dirs.MaxAge != nil {
@@ -241,7 +241,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 			logctx.WithError(err).Errorf("Could not close an optimistically opened fd, which then had to be revalidated")
 		}
 
-		cr := c.getReaderOrWriter(cacheId, k, w, true, logctx)
+		cr := c.getReaderOrWriter(cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
 		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}
 		cr.Age = age
 		return cr, k, nil
@@ -250,11 +250,18 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
 }
 
-func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, logctx *apexlog.Logger) CacheResult {
+func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
 	rk := k.FsName()
 	c.waitingReadersLock.Lock()
 	c.logger.Debugf("Checking if %v exists", rk)
+	var kind CacheResultKind
 	if _, exists := c.waitingReaders[rk]; exists {
+		if isRevalidating && staleWhileRevalidate {
+			c.waitingReadersLock.Unlock()
+			c.logger.Debugf("Released lock for stale reader attempt: %v", rk)
+			cr, _, _ := c.Get(cacheId, 0, true, []Key{k}, w, logctx)
+			return cr
+		}
 		defer c.waitingReadersLock.Unlock()
 		wc := make(chan KeyInfo, 1)
 		ct := chanWithTime{
@@ -263,7 +270,6 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		}
 		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
 		c.logger.Debugf("Locking for reader: %v", rk)
-		var kind CacheResultKind
 		if isRevalidating {
 			kind = RevalidatingReader
 		} else {
@@ -275,7 +281,6 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		defer c.waitingReadersLock.Unlock()
 		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, isRevalidating), logctx)
 		c.logger.Debugf("Locking for writer: %v", rk)
-		var kind CacheResultKind
 		if isRevalidating {
 			kind = RevalidatingWriter
 		} else {
@@ -654,13 +659,14 @@ func normalizeEtag(s string) string {
 }
 
 type CacheControlDirectives struct {
-	NoCache      bool
-	NoStore      bool
-	MaxAge       *int64
-	SMaxAge      *int64
-	Private      bool
-	staleIfError *int64
-	vary         []string
+	NoCache              bool
+	NoStore              bool
+	MaxAge               *int64
+	SMaxAge              *int64
+	Private              bool
+	staleIfError         *int64
+	staleWhileRevalidate *int64
+	vary                 []string
 }
 
 func (ccd CacheControlDirectives) DoNotCache() bool {
@@ -669,6 +675,10 @@ func (ccd CacheControlDirectives) DoNotCache() bool {
 
 func (ccd CacheControlDirectives) CanStaleIfError(age int64) bool {
 	return ccd.staleIfError != nil && *ccd.staleIfError > age
+}
+
+func (ccd CacheControlDirectives) CanStaleWhileRevalidate(age int64) bool {
+	return ccd.staleWhileRevalidate != nil && *ccd.staleWhileRevalidate > age
 }
 
 func (ccd CacheControlDirectives) VaryByOrigin() bool {
@@ -711,6 +721,12 @@ func GetCacheControlDirectives(h http.Header) CacheControlDirectives {
 					if err == nil {
 						staleIfError := int64(staleIfError)
 						dirs.staleIfError = &staleIfError
+					}
+				case "stale-while-revalidate":
+					staleWhileRevalidate, err := strconv.Atoi(v)
+					if err == nil {
+						staleWhileRevalidate := int64(staleWhileRevalidate)
+						dirs.staleWhileRevalidate = &staleWhileRevalidate
 					}
 				}
 			} else {

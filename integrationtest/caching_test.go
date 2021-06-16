@@ -865,6 +865,85 @@ func TestCache_stale_if_error_readers_get_stale(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_stale_while_revalidate_serves_readers_with_stale_while_writer_revalidates(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{"cache-control": "s-maxage=60, max-age=60, stale-while-revalidate=600"}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		if timesOriginHit >= 2 {
+			time.Sleep(time.Millisecond * 200)
+		}
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 1, timesOriginHit)
+	age, err := strconv.Atoi(resp.Header.Get("age"))
+	require.Nil(t, err)
+	require.True(t, age >= 0 && age <= 1)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Minute * 2)
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	for i := 0; i < 3; i++ {
+		wg.Add(1)
+		go func() {
+			resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte("ab"), body)
+			age, err = strconv.Atoi(resp.Header.Get("age"))
+			edgeCacheStatus := resp.Header.Get("richie-edge-cache")
+			if edgeCacheStatus == "revalidated" {
+				require.Equal(t, 0, age)
+			} else {
+				require.True(t, age >= 120 && age <= 121)
+			}
+			edgeCacheStatusesChan <- edgeCacheStatus
+			wg.Done()
+		}()
+		if i == 0 {
+			time.Sleep(time.Millisecond * 100)
+		} else {
+			time.Sleep(time.Millisecond * 5)
+		}
+	}
+	wg.Wait()
+	revalidated := 0
+	stale := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "stale" {
+			stale += 1
+		} else if s == "revalidated" {
+			revalidated += 1
+		}
+	}
+	require.Equal(t, 1, revalidated)
+	require.Equal(t, 2, stale)
+	require.Equal(t, 2, timesOriginHit)
+}
+
 func TestCache_cache_control_no_store_not_cached(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
