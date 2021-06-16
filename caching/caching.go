@@ -20,7 +20,7 @@ import (
 )
 
 type Cache interface {
-	Get(string, int, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
+	Get(string, int, bool, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
 	Invalidate(Key, *apexlog.Logger)
@@ -53,7 +53,7 @@ func newCache(storages []*Storage, logger *apexlog.Logger, now func() time.Time)
 		now:                now,
 	}
 
-	closeNotif := make(chan Key)
+	closeNotif := make(chan KeyInfo)
 	c.closeNotifier = &closeNotif
 
 	go c.readerNotifier()
@@ -72,11 +72,11 @@ type cache struct {
 	storages           []*Storage
 	logger             *apexlog.Logger
 	now                func() time.Time
-	closeNotifier      *chan Key
+	closeNotifier      *chan KeyInfo
 }
 
 type chanWithTime struct {
-	ch   *chan Key
+	ch   *chan KeyInfo
 	time time.Time
 }
 
@@ -86,15 +86,16 @@ func (c *cache) readerNotifier() {
 	}
 
 	for {
-		c.logger.Debugf("readerNotifier waiting for key")
-		k := <-*c.closeNotifier
-		c.logger.Debugf("readerNotifier got key: %v", k)
+		c.logger.Debugf("readerNotifier waiting for Key")
+		ki := <-*c.closeNotifier
+		k := ki.Key
+		c.logger.Debugf("readerNotifier got Key: %v", k)
 		rk := k.FsName()
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
 			for i, ct := range readers {
 				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
-				*ct.ch <- k
+				*ct.ch <- ki
 			}
 			delete(c.waitingReaders, rk)
 		}
@@ -159,17 +160,17 @@ func notFoundPreferredKey(keys []Key) Key {
 	return keys[0]
 }
 
-func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
+func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
 	s := c.storageWithCacheId(cacheId)
 	rc, sm, k, err := (*s).Get(keys)
 	if err != nil {
 		if !os.IsNotExist(err) {
-			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching key %v\n", (*s).Id(), k.FsName()))
-			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0}, k, err
+			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching Key %v\n", (*s).Id(), k.FsName()))
+			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, IsStale: false}, k, err
 		}
 		k = notFoundPreferredKey(keys)
 		logctx.Debugf("Miss: %v // %v", k, k.FsName())
-		cr := c.getReaderOrWriter(cacheId, k, w, false, logctx)
+		cr := c.getReaderOrWriter(cacheId, k, w, false, false, logctx)
 		return cr, k, nil
 	}
 
@@ -187,25 +188,26 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 	shouldRevalidate := false
 	if forceRevalidate != 0 {
 		shouldRevalidate = age >= int64(forceRevalidate)
+		skipRevalidate = false
 	}
 
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}
 		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
 			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
 			if mdModifiedSince == modifiedSince {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}
 		}
 	}
 
+	dirs := GetCacheControlDirectives(sm.ResponseHeader)
 	if !shouldRevalidate {
-		dirs := GetCacheControlDirectives(sm.ResponseHeader)
 		if dirs.SMaxAge != nil {
 			shouldRevalidate = *dirs.SMaxAge <= age
 		} else if dirs.MaxAge != nil {
@@ -228,53 +230,63 @@ func (c *cache) Get(cacheId string, forceRevalidate int, keys []Key, w http.Resp
 		shouldRevalidate = expiresTime.Unix() <= c.now().Unix()
 	}
 
+	isStale := shouldRevalidate
+	if shouldRevalidate && skipRevalidate {
+		shouldRevalidate = false
+	}
+
 	if shouldRevalidate {
 		err := rc.Close()
 		if err != nil {
 			logctx.WithError(err).Errorf("Could not close an optimistically opened fd, which then had to be revalidated")
 		}
 
-		cr := c.getReaderOrWriter(cacheId, k, w, true, logctx)
+		cr := c.getReaderOrWriter(cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
 		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}
 		cr.Age = age
 		return cr, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age}, k, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
 }
 
-func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, logctx *apexlog.Logger) CacheResult {
+func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
 	rk := k.FsName()
 	c.waitingReadersLock.Lock()
 	c.logger.Debugf("Checking if %v exists", rk)
+	var kind CacheResultKind
 	if _, exists := c.waitingReaders[rk]; exists {
+		if isRevalidating && staleWhileRevalidate {
+			c.waitingReadersLock.Unlock()
+			c.logger.Debugf("Released lock for stale reader attempt: %v", rk)
+			cr, _, _ := c.Get(cacheId, 0, true, []Key{k}, w, logctx)
+			return cr
+		}
 		defer c.waitingReadersLock.Unlock()
-		wc := make(chan Key, 1)
+		wc := make(chan KeyInfo, 1)
 		ct := chanWithTime{
 			ch:   &wc,
 			time: time.Now(),
 		}
 		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
 		c.logger.Debugf("Locking for reader: %v", rk)
-		var kind CacheResultKind
 		if isRevalidating {
 			kind = RevalidatingReader
 		} else {
 			kind = NotFoundReader
 		}
-		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0}
+		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0, false}
 	} else {
 		c.waitingReaders[rk] = make([]*chanWithTime, 0)
 		defer c.waitingReadersLock.Unlock()
 		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, isRevalidating), logctx)
 		c.logger.Debugf("Locking for writer: %v", rk)
-		var kind CacheResultKind
 		if isRevalidating {
 			kind = RevalidatingWriter
 		} else {
 			kind = NotFoundWriter
 		}
-		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0}
+		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0, false}
 
 	}
 }
@@ -316,7 +328,7 @@ func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 		return
 	}
 
-	*c.closeNotifier <- k
+	*c.closeNotifier <- KeyInfo{Key: k}
 }
 
 func (c *cache) getWriter(cacheId string, k Key, revalidate bool) CacheWriter {
@@ -457,9 +469,15 @@ type CacheResult struct {
 	Kind     CacheResultKind
 	Reader   *os.File
 	Writer   CachingResponseWriter
-	WaitChan *chan Key
+	WaitChan *chan KeyInfo
 	Metadata CacheMetadata
 	Age      int64
+	IsStale  bool
+}
+
+type KeyInfo struct {
+	Key         Key
+	CanUseStale bool
 }
 
 type Writer interface {
@@ -477,6 +495,7 @@ type CacheWriter interface {
 	WriteHeader(statusCode int, header http.Header)
 	SetRedirectedURL(redir *url.URL)
 	SetRevalidated()
+	SetRevalidateErrored(bool)
 	ChangeKey(Key) error
 	Delete() error
 	WrittenFile() (*os.File, error)
@@ -526,6 +545,7 @@ type CachingResponseWriter interface {
 	GetClientWritesDisabled() bool
 	SetRedirectedURL(*url.URL)
 	SetRevalidatedAndClose() error
+	SetRevalidateErroredAndClose(bool) error
 }
 
 type cachingResponseWriter struct {
@@ -605,6 +625,11 @@ func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
 	return crw.cacheWriter.Close()
 }
 
+func (crw *cachingResponseWriter) SetRevalidateErroredAndClose(canStaleIfError bool) error {
+	crw.cacheWriter.SetRevalidateErrored(canStaleIfError)
+	return crw.cacheWriter.Close()
+}
+
 func (crw *cachingResponseWriter) Delete() error {
 	err := crw.cacheWriter.Delete()
 	if err != nil {
@@ -634,16 +659,26 @@ func normalizeEtag(s string) string {
 }
 
 type CacheControlDirectives struct {
-	NoCache bool
-	NoStore bool
-	MaxAge  *int64
-	SMaxAge *int64
-	Private bool
-	vary    []string
+	NoCache              bool
+	NoStore              bool
+	MaxAge               *int64
+	SMaxAge              *int64
+	Private              bool
+	staleIfError         *int64
+	staleWhileRevalidate *int64
+	vary                 []string
 }
 
 func (ccd CacheControlDirectives) DoNotCache() bool {
 	return ccd.Private || ccd.NoStore || (ccd.SMaxAge != nil && *ccd.SMaxAge == 0) || (ccd.MaxAge != nil && *ccd.MaxAge == 0)
+}
+
+func (ccd CacheControlDirectives) CanStaleIfError(age int64) bool {
+	return ccd.staleIfError != nil && *ccd.staleIfError > age
+}
+
+func (ccd CacheControlDirectives) CanStaleWhileRevalidate(age int64) bool {
+	return ccd.staleWhileRevalidate != nil && *ccd.staleWhileRevalidate > age
 }
 
 func (ccd CacheControlDirectives) VaryByOrigin() bool {
@@ -680,6 +715,18 @@ func GetCacheControlDirectives(h http.Header) CacheControlDirectives {
 					if err == nil {
 						sMaxAge64 := int64(sMaxAge)
 						dirs.SMaxAge = &sMaxAge64
+					}
+				case "stale-if-error":
+					staleIfError, err := strconv.Atoi(v)
+					if err == nil {
+						staleIfError := int64(staleIfError)
+						dirs.staleIfError = &staleIfError
+					}
+				case "stale-while-revalidate":
+					staleWhileRevalidate, err := strconv.Atoi(v)
+					if err == nil {
+						staleWhileRevalidate := int64(staleWhileRevalidate)
+						dirs.staleWhileRevalidate = &staleWhileRevalidate
 					}
 				}
 			} else {
