@@ -1,6 +1,8 @@
 package caching
 
 import (
+	"bufio"
+	"bytes"
 	"encoding/json"
 	"fmt"
 	apexlog "github.com/apex/log"
@@ -12,10 +14,13 @@ import (
 	"net/http"
 	"net/url"
 	"os"
+	"os/signal"
 	"path/filepath"
 	"sort"
 	"strconv"
+	"strings"
 	"sync"
+	"syscall"
 	"time"
 )
 
@@ -74,18 +79,40 @@ type DiskStorage struct {
 func NewDiskStorage(id string, path string, size int64, logger *apexlog.Logger, now func() time.Time) Storage {
 	createStoragePath(path)
 	s := &storage{
-		id:                id,
-		path:              path,
-		maxSizeBytes:      size,
-		sizeBytes:         0,
-		itemsLock:         sync.Mutex{},
-		withAccessTime:    make(map[itemName]accessedItem, 0),
-		withoutAccessTime: make(map[itemName]item, 0),
-		logger:            logger,
-		now:               now,
+		id:                        id,
+		path:                      path,
+		maxSizeBytes:              size,
+		startedAt:                 time.Now().Unix(),
+		sizeBytes:                 0,
+		itemsLock:                 sync.Mutex{},
+		withAccessTime:            make(map[itemName]accessedItem, 0),
+		storableAccessedItems:     make(map[itemName]storableAccessedItem, 0),
+		withoutAccessTime:         make(map[itemName]item, 0),
+		storableAccessedItemsLock: sync.Mutex{},
+		atimesPath:                filepath.Join(path, "atimes"),
+		logger:                    logger,
+		now:                       now,
 	}
 
 	go s.runSizeLimiter()
+	disablePersistentAtime := util.EnvBool(os.Getenv("ATIME_DISABLE"))
+	if !disablePersistentAtime {
+		sigChan := make(chan os.Signal, 1)
+		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
+		go s.signalListener(sigChan)
+		go func() {
+			for {
+				s.flushStorableAccessTimes()
+				t := 30
+				if sleepTime := os.Getenv("ATIME_FLUSH_INTERVAL"); len(sleepTime) > 0 {
+					if it, err := strconv.Atoi(sleepTime); err == nil {
+						t = it
+					}
+				}
+				time.Sleep(time.Second * time.Duration(t))
+			}
+		}()
+	}
 
 	return s
 }
@@ -106,15 +133,18 @@ type accessTime uint32
 type itemName string
 
 type storage struct {
-	id                string
-	path              string
-	maxSizeBytes      int64
-	startedAt         int64
-	sizeBytes         int64
-	itemsLock         sync.Mutex
-	withAccessTime    map[itemName]accessedItem
-	withoutAccessTime map[itemName]item
-	isReplaced        bool
+	id                        string
+	path                      string
+	maxSizeBytes              int64
+	startedAt                 int64
+	sizeBytes                 int64
+	itemsLock                 sync.Mutex
+	withAccessTime            map[itemName]accessedItem
+	withoutAccessTime         map[itemName]item
+	isReplaced                bool
+	atimesPath                string
+	storableAccessedItems     map[itemName]storableAccessedItem
+	storableAccessedItemsLock sync.Mutex
 
 	logger *apexlog.Logger
 	now    func() time.Time
@@ -122,6 +152,11 @@ type storage struct {
 
 type accessedItem struct {
 	accessTime    accessTime
+	sizeKilobytes uint32
+}
+
+type storableAccessedItem struct {
+	accessTime    int64
 	sizeKilobytes uint32
 }
 
@@ -199,6 +234,8 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 			continue
 		}
 
+		s.setAccessTime(key, sm.Size)
+
 		return f, sm, key, nil
 	}
 
@@ -249,6 +286,9 @@ func (s *storage) readFiles(path string) int {
 	}
 	fileCount := 0
 	var names []string
+	var sizeBytes int64
+	withoutAccessTime := make(map[itemName]item)
+
 	for err != io.EOF {
 		names, err = d.Readdirnames(1024)
 		if err != nil && err != io.EOF {
@@ -267,10 +307,15 @@ func (s *storage) readFiles(path string) int {
 			}
 			name := fi.Name()
 			size := fi.Size()
-			s.sizeBytes += size
-			s.withoutAccessTime[itemName(prefixWithItemName(name)+name)] = item{sizeKilobytes: uint32(size / 1024)}
+			sizeBytes += size
+			withoutAccessTime[itemName(prefixWithItemName(name)+name)] = item{sizeKilobytes: uint32(size / 1024)}
 		}
 	}
+	s.itemsLock.Lock()
+	for n, i := range withoutAccessTime {
+		s.withoutAccessTime[n] = i
+	}
+	s.itemsLock.Unlock()
 
 	return fileCount
 }
@@ -279,6 +324,22 @@ func (s *storage) runSizeLimiter() {
 	t := time.Now()
 	fileCount := s.readFiles(s.path)
 	s.logger.Infof("Read sizes of %v files in %v: %v", fileCount, time.Now().Sub(t), s.sizeBytes)
+
+	t = time.Now()
+	withAccessTime, err := s.readStorableAccessTimes()
+	if err != nil {
+		s.logger.Infof("Errored when reading access times: %v", err)
+	} else if len(withAccessTime) > 0 {
+		s.logger.Infof("Read access times of %v files in %v", len(withAccessTime), time.Now().Sub(t))
+		s.itemsLock.Lock()
+		t = time.Now()
+		for n, i := range withAccessTime {
+			s.withAccessTime[n] = i
+			delete(s.withoutAccessTime, n)
+		}
+		s.logger.Infof("Set access times of %v files in %v", len(withAccessTime), time.Now().Sub(t))
+		s.itemsLock.Unlock()
+	}
 
 	// Initialization done, go at it forever:
 
@@ -383,6 +444,249 @@ func (s *storage) purgeableItemNames(purgeBytes int64) purgeableItems {
 	}
 
 	return purgeableItems{withAccessTimes: withAccessTimes, withoutAccessTimes: withoutAccessTimes, size: bytesFound}
+}
+
+func (s *storage) signalListener(c chan os.Signal) {
+	for {
+		sig := <-c
+		switch sig {
+		case syscall.SIGTERM, syscall.SIGABRT, syscall.SIGINT:
+			s.logger.Infof("Received %v, running exit handlers", sig)
+			if !util.EnvBool(os.Getenv("ATIME_DISABLE")) {
+				s.flushStorableAccessTimes()
+			}
+			os.Exit(0)
+		}
+	}
+}
+
+func (s *storage) readStorableAccessTimes() (withAccessTime map[itemName]accessedItem, err error) {
+	s.storableAccessedItemsLock.Lock()
+	defer s.storableAccessedItemsLock.Unlock()
+
+	p := s.atimesPath
+	f, err := os.Open(p)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return withAccessTime, nil
+		}
+		s.logger.Errorf("Could not open atime file: %v", err)
+		return withAccessTime, err
+	}
+	defer f.Close()
+
+	withAccessTime = make(map[itemName]accessedItem, 0)
+	reader := bufio.NewReader(f)
+	var l string
+	for {
+		l, err = reader.ReadString('\n')
+		if err != nil {
+			break
+		}
+		if len(l) > 0 {
+			l = l[:len(l)-1]
+		}
+		parts := strings.Split(l, "|")
+		if len(parts) != 3 {
+			continue
+		}
+		name := parts[0]
+		var atime uint32
+		var size uint32
+		satime := parts[1]
+		i64, err := strconv.ParseInt(satime, 10, 64)
+		if err != nil {
+			continue
+		}
+		atime = uint32(s.startedAt - i64)
+		ssize := parts[2]
+		v, err := strconv.Atoi(ssize)
+		if err != nil {
+			continue
+		}
+		size = uint32(v)
+		withAccessTime[itemName(name)] = accessedItem{accessTime: accessTime(atime), sizeKilobytes: size}
+	}
+	if err != io.EOF {
+		s.logger.Errorf("Reading access times failed with %v items read: %v", len(withAccessTime), err)
+	}
+
+	err = os.Remove(p)
+	if err != nil {
+		s.logger.Errorf("Could not remove atime file: %v", err)
+	}
+
+	return withAccessTime, nil
+}
+
+func (s *storage) resetStorableAccessTimes() {
+	s.storableAccessedItemsLock.Lock()
+	s.storableAccessedItems = make(map[itemName]storableAccessedItem, 0)
+	s.storableAccessedItemsLock.Unlock()
+}
+
+func (s *storage) flushStorableAccessTimes() {
+	s.storableAccessedItemsLock.Lock()
+	defer s.resetStorableAccessTimes()
+	defer s.storableAccessedItemsLock.Unlock()
+
+	if len(s.storableAccessedItems) == 0 {
+		return
+	}
+
+	buf := new(bytes.Buffer)
+	p := s.atimesPath
+	tp := filepath.Join(s.path, "atimes-truncated")
+	// Roughly 60 bytes per item, times 3M, is about 171MB on disk and takes roughly two seconds to parse into memory
+	// on startup on a 2016 laptop.
+	maxLength := int64(60 * 3000000)
+	if as := os.Getenv("ATIME_LOG_SIZE_BYTES"); len(as) > 0 {
+		if l, err := strconv.Atoi(as); err == nil {
+			maxLength = int64(l)
+		}
+	}
+
+	f, err := os.OpenFile(p, os.O_RDWR, 0)
+	if err != nil {
+		if !os.IsNotExist(err) {
+			s.logger.Errorf("atime file opening errored: %v", err)
+			err := os.Remove(p)
+			if err != nil {
+				s.logger.Errorf("Could not remove errored file: %v", err)
+			}
+		}
+		f, err = os.Create(p)
+		if err != nil {
+			s.logger.Errorf("Could not create atime file: %v", err)
+			return
+		}
+	}
+	defer f.Close()
+	length, err := f.Seek(0, 2)
+	if err != nil {
+		s.logger.Errorf("Could not seek to end of atime file: %v", err)
+		return
+	}
+
+	step := func() error {
+		if buf.Len() > 0 {
+			_, werr := f.Write(buf.Bytes())
+			if werr != nil {
+				s.logger.WithField("error", werr).Infof("Writing atime errored")
+				return werr
+			}
+		}
+		buf.Reset()
+		return nil
+	}
+	delim := byte('\n')
+	n := 0
+
+	for name, item := range s.storableAccessedItems {
+		if n%1000 == 0 {
+			err := step()
+			if err != nil {
+				err = f.Close()
+				if err != nil {
+					s.logger.Errorf("Could not close atime file after error: %v", err)
+					return
+				}
+			}
+		}
+		s := string(name) + "|" + strconv.FormatInt(item.accessTime, 10) + "|" + strconv.Itoa(int(item.sizeKilobytes))
+		buf.Write([]byte(s))
+		buf.WriteByte(delim)
+		n += 1
+	}
+	err = step()
+	if err != nil {
+		s.logger.Errorf("Writing atime errored: %v", err)
+	}
+
+	if length > maxLength {
+		bytesToTrim := length - maxLength + (maxLength / 10) // Chop 10% off the top.
+		s.logger.Infof("Trimming %v from %v", bytesToTrim, length)
+		seekPos, err := f.Seek(bytesToTrim, 0)
+		if err != nil {
+			s.logger.Errorf("Could not seek in atime file: %v", err)
+			return
+		}
+		b := make([]byte, 4*1024)
+		n, err = f.Read(b)
+		if err != nil && err != io.EOF {
+			s.logger.Errorf("Could not read atime file: %v", err)
+			return
+		}
+		delimPos := int64(bytes.IndexByte(b, delim))
+		if delimPos == -1 {
+			s.logger.Errorf("Delimiter not found in atimes: %v", err)
+			return
+		}
+		_, err = f.Seek(seekPos+delimPos+1, 0)
+		if err != nil {
+			s.logger.Errorf("Could not seek to prune position of atime file: %v", err)
+			return
+		}
+		outfd, err := os.Create(tp)
+		if err != nil {
+			os.Remove(tp)
+			outfd, err = os.Create(tp)
+			if err != nil {
+				s.logger.Errorf("Could not create truncated file: %v", err)
+				return
+			}
+		}
+		defer outfd.Close()
+
+		b = make([]byte, 64*1024)
+		var rerr error
+		var werr error
+		var rn int
+		for rn, rerr = f.Read(b); rerr == nil; {
+			n, werr = outfd.Write(b[:rn])
+			if werr != nil {
+				s.logger.Errorf("Could not write to truncated file: %v", err)
+				return
+			}
+			rn, rerr = f.Read(b)
+		}
+		if rerr != io.EOF {
+			s.logger.Errorf("Could not read from original atime file: %v", err)
+			return
+		}
+
+		err = outfd.Close()
+		if err != nil {
+			s.logger.Errorf("Could not close truncated file: %v", err)
+			return
+		}
+		err = f.Close()
+		if err != nil {
+			s.logger.Errorf("Could not close old atime file: %v", err)
+		}
+		err = os.Remove(p)
+		if err != nil {
+			s.logger.Errorf("Could not remove old atime file: %v", err)
+		}
+		err = os.Rename(tp, p)
+		if err != nil {
+			s.logger.Errorf("Could not rename new atime file: %v", err)
+		}
+	}
+}
+
+func (s *storage) setAccessTime(key Key, size int64) {
+	name := itemName(key.FsName())
+	storableItem := storableAccessedItem{time.Now().Unix(), uint32(size / 1024)}
+	s.storableAccessedItemsLock.Lock()
+	s.storableAccessedItems[name] = storableItem
+	s.storableAccessedItemsLock.Unlock()
+
+	item := accessedItem{accessTime(time.Now().Unix() - s.startedAt), uint32(size / 1024)}
+	s.itemsLock.Lock()
+	s.withAccessTime[name] = item
+	delete(s.withoutAccessTime, name)
+	s.itemsLock.Unlock()
 }
 
 type storageWriter struct {
