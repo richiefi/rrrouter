@@ -992,7 +992,7 @@ func (sw *storageWriter) Delete() error {
 
 	closeErr := sw.fd.Close()
 	err := os.Remove(sw.path)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		sw.log.Errorf("Could not remove path %v: %v. Close error was: %v", sw.path, err, closeErr)
 		return err
 	}
