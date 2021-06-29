@@ -284,7 +284,7 @@ Rrrouter includes a `richie-edge-cache` response header, with values being `miss
 
 ### Access time storing
 
-For best performance it's recommended to set noatime on the mounted storage. As this is the starting point, no atimes are attempted to be read from disk storage. Rrrouter stores access times for new entries in memory and will flush them underneath the configured cache path, up to `ATIME_LOG_SIZE_BYTES` bytes, ~3M records by default. When the maximum size is met, the log file is truncated by 10% starting from the earliest accesses. `ATIME_FLUSH_INTERVAL`, 30 seconds by default, specifies how often unique entry accesses--inside this interval--are appended to the log file. This log file is read upon startup and then removed. Disable with `ATIME_DISABLE` set to `"true"`. 
+For best performance it's recommended to set noatime on the mounted storage. As this is the starting point, no atimes are attempted to be read from disk storage. Rrrouter stores access times for new entries in memory and will flush them underneath the configured cache path, up to ATIME_LOG_SIZE_BYTES bytes, ~3M records by default. When the maximum size is met, the log file is truncated by 10% starting from the earliest accesses. ATIME_FLUSH_INTERVAL, 30 seconds by default, specifies how often unique entry accesses--inside this interval--are appended to the log file. This log file is read upon startup and information within used when creating space for new entries, starting with the oldest entries, should there not be enough entries without access times to use for this purpose. Disable with ATIME_DISABLE set to "true". 
 
 ## System information
 
