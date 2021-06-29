@@ -508,12 +508,7 @@ func (s *storage) readStorableAccessTimes() (withAccessTime map[itemName]accesse
 		withAccessTime[itemName(name)] = accessedItem{accessTime: accessTime(atime), sizeKilobytes: size}
 	}
 	if err != io.EOF {
-		s.logger.Errorf("Reading access times failed with %v items read: %v", len(withAccessTime), err)
-	}
-
-	err = os.Remove(p)
-	if err != nil {
-		s.logger.Errorf("Could not remove atime file: %v", err)
+		s.logger.Warnf("Reading access times failed with %v items read: %v", len(withAccessTime), err)
 	}
 
 	return withAccessTime, nil
