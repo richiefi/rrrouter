@@ -1823,6 +1823,10 @@ func (c *testCache) HasStorage(id string) bool {
 	return true
 }
 
+func (c *testCache) HealthCheck() error {
+	return nil
+}
+
 type testStorage struct {
 	s           caching.Storage
 	queriedKeys func(caching.Key)
@@ -1845,8 +1849,13 @@ func (ts *testStorage) Id() string {
 func (ts *testStorage) Update(cfg caching.StorageConfiguration) {
 
 }
+
 func (ts *testStorage) SetIsReplaced() {
 
+}
+
+func (ts *testStorage) WriteTest() (bool, error) {
+	return true, nil
 }
 
 func newTestStorage(s caching.Storage, queriedKeys func(caching.Key)) caching.Storage {

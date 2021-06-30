@@ -30,6 +30,7 @@ type Storage interface {
 	Id() string
 	Update(cfg StorageConfiguration)
 	SetIsReplaced()
+	WriteTest() (bool, error)
 }
 
 type StorageMetadata struct {
@@ -273,6 +274,44 @@ func (s *storage) Update(cfg StorageConfiguration) {
 
 func (s *storage) SetIsReplaced() {
 	s.isReplaced = true
+}
+
+func (s *storage) WriteTest() (bool, error) {
+	p := filepath.Join(s.path, ".healthcheck")
+	err := os.Remove(p)
+	if err != nil && !os.IsNotExist(err) {
+		msg := "Can't remove stray .healthcheck"
+		s.logger.Errorf(msg)
+		return false, errors.New(msg)
+	}
+	fd, err := os.Create(p)
+	if err != nil {
+		msg := "Can't create .healthcheck"
+		s.logger.Errorf(msg)
+		return false, errors.New(msg)
+	}
+	bs := make([]byte, 1024)
+	for i := 0; i < 1024; i++ {
+		bs[i] = 'A'
+	}
+	for i := 0; i < 1024; i++ {
+		n, err := fd.Write(bs)
+		if err != nil || n != len(bs) {
+			return false, err
+		}
+	}
+	err = fd.Close()
+	if err != nil {
+		s.logger.Infof("Closing .healthcheck errored")
+	}
+	err = os.Remove(p)
+	if err != nil {
+		msg := "Removing .healthcheck errored"
+		s.logger.Infof(msg)
+		return false, errors.New(msg)
+	}
+
+	return true, nil
 }
 
 func (s *storage) stats() string {
