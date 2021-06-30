@@ -315,6 +315,7 @@ func (s *storage) readFiles(path string) int {
 	for n, i := range withoutAccessTime {
 		s.withoutAccessTime[n] = i
 	}
+	s.sizeBytes += sizeBytes
 	s.itemsLock.Unlock()
 
 	return fileCount
@@ -348,9 +349,9 @@ func (s *storage) runSizeLimiter() {
 		if s.isReplaced {
 			break
 		}
+		s.logger.Info(s.stats())
 		purgeable := purgeableItems{}
 		s.itemsLock.Lock()
-		s.logger.Info(s.stats())
 		if s.sizeBytes > s.maxSizeBytes {
 			purgeable = s.purgeableItemNames(s.sizeBytes - s.maxSizeBytes)
 		}
