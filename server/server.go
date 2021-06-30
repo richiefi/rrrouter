@@ -47,6 +47,13 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache
 func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
 	s.Handle("/__SYSTEMINFO", basicAuth(showSystemInfo(), conf.AdminName, conf.AdminPass, "Restricted"))
 	s.HandleFunc("/__RRROUTER/health", func(w http.ResponseWriter, req *http.Request) {
+		if cache != nil {
+			if err := cache.HealthCheck(); err != nil {
+				w.WriteHeader(503)
+				fmt.Fprintf(w, "Unhealthy cache: %v", err)
+				return
+			}
+		}
 		fmt.Fprintf(w, "OK")
 	})
 	s.HandleFunc("/", cachingHandler(router, logger, conf, cache))
