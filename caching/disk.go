@@ -315,6 +315,7 @@ func (s *storage) readFiles(path string) int {
 	for n, i := range withoutAccessTime {
 		s.withoutAccessTime[n] = i
 	}
+	s.sizeBytes += sizeBytes
 	s.itemsLock.Unlock()
 
 	return fileCount
