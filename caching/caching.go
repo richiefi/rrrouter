@@ -24,6 +24,7 @@ type Cache interface {
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
 	Invalidate(Key, *apexlog.Logger)
+	HealthCheck() error
 }
 
 func NewCacheWithOptions(opts []StorageConfiguration, logger *apexlog.Logger, now func() time.Time) Cache {
@@ -329,6 +330,16 @@ func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 	}
 
 	*c.closeNotifier <- KeyInfo{Key: k}
+}
+
+func (c *cache) HealthCheck() error {
+	for _, s := range c.storages {
+		if ok, err := (*s).WriteTest(); !ok {
+			return err
+		}
+	}
+
+	return nil
 }
 
 func (c *cache) getWriter(cacheId string, k Key, revalidate bool) CacheWriter {
