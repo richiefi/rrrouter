@@ -349,9 +349,9 @@ func (s *storage) runSizeLimiter() {
 		if s.isReplaced {
 			break
 		}
+		s.logger.Info(s.stats())
 		purgeable := purgeableItems{}
 		s.itemsLock.Lock()
-		s.logger.Info(s.stats())
 		if s.sizeBytes > s.maxSizeBytes {
 			purgeable = s.purgeableItemNames(s.sizeBytes - s.maxSizeBytes)
 		}
