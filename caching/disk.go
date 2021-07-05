@@ -305,7 +305,7 @@ func (s *storage) WriteTest() (bool, error) {
 		s.logger.Infof("Closing .healthcheck errored")
 	}
 	err = os.Remove(p)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		msg := "Removing .healthcheck errored"
 		s.logger.Infof(msg)
 		return false, errors.New(msg)
