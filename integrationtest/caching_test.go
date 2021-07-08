@@ -7,16 +7,13 @@ import (
 	apexlog "github.com/apex/log"
 	"github.com/c2h5oh/datasize"
 	"github.com/richiefi/rrrouter/caching"
-	uuid "github.com/satori/go.uuid"
 	"github.com/stretchr/testify/require"
 	"io/ioutil"
-	"math/rand"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
 	"os"
 	"path/filepath"
-	"sort"
 	"strconv"
 	"sync"
 	"testing"
@@ -26,37 +23,6 @@ import (
 	"github.com/richiefi/rrrouter/proxy"
 	"github.com/richiefi/rrrouter/server"
 )
-
-func Benchmark_sorter1(b *testing.B) {
-	type item struct {
-		name string
-		size int64
-	}
-
-	items := make(map[int64]item, 0)
-	now := time.Now()
-	rand.Seed(now.Unix())
-
-	for i := 0; i < 1000000; i++ {
-		anItem := item{size: rand.Int63n(1024 * 1024 * 50), name: uuid.NewV4().String()[:10]}
-		accessTime := now.Unix() - rand.Int63n(60*60*24)
-		items[accessTime] = anItem
-	}
-
-	sortItems := func(items map[int64]item) {
-		keys := make([]int64, len(items))
-		i := 0
-		for at := range items {
-			keys[i] = at
-			i++
-		}
-		sort.Slice(keys, func(i int, j int) bool { return keys[i] < keys[j] })
-	}
-
-	for i := 0; i < b.N; i++ {
-		sortItems(items)
-	}
-}
 
 func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *testing.T) {
 	sh := setup(t)

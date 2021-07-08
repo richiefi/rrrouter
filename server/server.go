@@ -55,6 +55,7 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 			}
 		}
 		fmt.Fprintf(w, "OK")
+		cache.Remove(nil, nil, nil)
 	})
 	s.HandleFunc("/", cachingHandler(router, logger, conf, cache))
 }

@@ -24,6 +24,7 @@ type Cache interface {
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
 	Invalidate(Key, *apexlog.Logger)
+	Remove(*map[string][]string, *string, *string) RemoveResult
 	HealthCheck() error
 }
 
@@ -332,6 +333,20 @@ func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 	}
 
 	*c.closeNotifier <- KeyInfo{Key: k}
+}
+
+func (c *cache) Remove(keyValues *map[string][]string, urlPattern *string, path *string) RemoveResult {
+	total := RemoveResult{}
+	for _, s := range c.storages {
+		rr := (*s).Remove(keyValues, urlPattern, path)
+		if rr.error != nil {
+			total.error = rr.error
+			break
+		}
+		total.urls += rr.urls
+		total.entries += rr.entries
+	}
+	return total
 }
 
 func (c *cache) HealthCheck() error {

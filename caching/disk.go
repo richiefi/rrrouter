@@ -27,6 +27,7 @@ import (
 type Storage interface {
 	GetWriter(Key, bool, *chan KeyInfo) StorageWriter
 	Get([]Key) (*os.File, StorageMetadata, Key, error)
+	Remove(*map[string][]string, *string, *string) RemoveResult
 	Id() string
 	Update(cfg StorageConfiguration)
 	SetIsReplaced()
@@ -146,6 +147,7 @@ type storage struct {
 	atimesPath                string
 	storableAccessedItems     map[itemName]storableAccessedItem
 	storableAccessedItemsLock sync.Mutex
+	search                    Search
 
 	logger *apexlog.Logger
 	now    func() time.Time
@@ -241,6 +243,16 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 	}
 
 	return nil, StorageMetadata{}, keys[0], os.ErrNotExist
+}
+
+func (s *storage) Remove(keyValues *map[string][]string, urlPattern *string, path *string) RemoveResult {
+	if s.search == nil {
+		return RemoveResult{}
+	}
+
+	rr := <-s.search.Remove(s.path, keyValues, urlPattern, path)
+
+	return rr
 }
 
 func getStorageMetadata(f *os.File, attrName string) (StorageMetadata, error) {
@@ -746,6 +758,7 @@ type storageWriter struct {
 	revalidateErrored bool
 	canStaleIfError   bool
 	now               func() time.Time
+	search            Search
 }
 
 func (sw *storageWriter) Seek(offset int64, whence int) (int64, error) {
@@ -940,6 +953,10 @@ func (sw *storageWriter) Close() error {
 	sw.finishAndNotify()
 	sw.closed = true
 
+	if sw.search != nil {
+		sw.search.Insert(sw.responseHeader, sw.key.host+sw.key.path, sw.path)
+	}
+
 	return err
 }
 
@@ -1033,6 +1050,10 @@ func (sw *storageWriter) Delete() error {
 	}
 
 	sw.deleted = true
+
+	if sw.search != nil {
+		sw.search.Remove(sw.root, nil, nil, &sw.path)
+	}
 
 	return nil
 }

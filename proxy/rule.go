@@ -40,9 +40,7 @@ const (
 	HostHeaderDestination
 )
 
-// NewRule builds a new Rule
-func NewRule(enabled bool, pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
-	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, flattenRedirects bool, retryRule *Rule) (*Rule, error) {
+func RegexpWithString(pattern string, mustCompile bool) (*regexp.Regexp, int, error) {
 	lowpat := strings.ToLower(pattern)
 	addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://") || strings.HasPrefix(lowpat, "*://"))
 	inputParts := strings.Split(pattern, "*")
@@ -64,7 +62,46 @@ func NewRule(enabled bool, pattern, destination string, internal bool, methods m
 	finalParts = append(finalParts, `\z`)
 
 	repattern := strings.Join(finalParts, "")
-	r := regexp.MustCompile(repattern)
+	if mustCompile {
+		return regexp.MustCompile(repattern), wildcardCount, nil
+	}
+
+	r, err := regexp.Compile(repattern)
+	if err != nil {
+		return nil, 0, err
+	}
+
+	return r, wildcardCount, nil
+}
+
+// NewRule builds a new Rule
+func NewRule(enabled bool, pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
+	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, flattenRedirects bool, retryRule *Rule) (*Rule, error) {
+	r, wildcardCount, _ := RegexpWithString(pattern, true)
+
+	//lowpat := strings.ToLower(pattern)
+	//addAnyProto := !(strings.HasPrefix(lowpat, "http://") || strings.HasPrefix(lowpat, "https://") || strings.HasPrefix(lowpat, "*://"))
+	//inputParts := strings.Split(pattern, "*")
+	//finalParts := make([]string, 0, len(inputParts)*3)
+	//finalParts = append(finalParts, `(?i)\A`)
+	//wildcardCount := 0
+	//if addAnyProto {
+	//	finalParts = append(finalParts, "https?://")
+	//}
+	//for i, p := range inputParts {
+	//	qp := regexp.QuoteMeta(p)
+	//	finalParts = append(finalParts, qp)
+	//
+	//	if i < len(inputParts)-1 {
+	//		finalParts = append(finalParts, "(.*)")
+	//		wildcardCount++
+	//	}
+	//}
+	//finalParts = append(finalParts, `\z`)
+	//
+	//repattern := strings.Join(finalParts, "")
+	//r := regexp.MustCompile(repattern)
+
 	rule := &Rule{
 		enabled:          enabled,
 		pattern:          pattern,
