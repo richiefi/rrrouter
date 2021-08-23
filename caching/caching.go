@@ -192,21 +192,6 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		skipRevalidate = false
 	}
 
-	if !shouldRevalidate {
-		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
-			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
-				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
-			}
-		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
-			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
-			if mdModifiedSince == modifiedSince {
-				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
-			}
-		}
-	}
-
 	dirs := GetCacheControlDirectives(sm.ResponseHeader)
 	if !shouldRevalidate {
 		if dirs.SMaxAge != nil {
@@ -229,6 +214,21 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 			break
 		}
 		shouldRevalidate = expiresTime.Unix() <= c.now().Unix()
+	}
+
+	if !shouldRevalidate {
+		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
+			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+				defer rc.Close()
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+			}
+		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
+			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
+			if mdModifiedSince == modifiedSince {
+				defer rc.Close()
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+			}
+		}
 	}
 
 	isStale := shouldRevalidate

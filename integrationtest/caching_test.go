@@ -291,6 +291,62 @@ func TestCache_item_cached_then_expires_and_revalidated(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_revalidation_passed_with_etag_given(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+
+	hdrs = map[string]string{"expires": now.Format(time.RFC1123), "etag": "\"abcd\""}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "0", resp.Header.Get("age"))
+	require.Equal(t, 1, timesOriginHit)
+
+	now = now.Add(time.Minute * 1)
+	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123)}
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"\"abcd\""}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "revalidated", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "0", resp.Header.Get("age"))
+	require.Equal(t, 2, timesOriginHit)
+
+	now = now.Add(time.Second * 2)
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	age, _ := strconv.Atoi(resp.Header.Get("age"))
+	require.Greater(t, age, 1)
+	require.Equal(t, 2, timesOriginHit)
+}
+
 func TestCache_item_revalidation_uses_conditionals_if_available(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
