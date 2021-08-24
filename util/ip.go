@@ -8,6 +8,10 @@ import (
 
 // DropPort returns an URL without the port part
 func DropPort(ipport string) string {
+	if len(ipport) == 0 {
+		return ipport
+	}
+
 	if ipport[0] == '[' { //ipv6 looks like [addr]:port
 		closeBracketIndex := strings.LastIndex(ipport, "]")
 		ip := ipport[1:closeBracketIndex]
