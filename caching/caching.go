@@ -254,7 +254,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
 	rk := k.FsName()
 	c.waitingReadersLock.Lock()
-	c.logger.Debugf("Checking if %v exists", rk)
+	//c.logger.Debugf("Checking if %v exists", rk)
 	var kind CacheResultKind
 	if _, exists := c.waitingReaders[rk]; exists {
 		if isRevalidating && staleWhileRevalidate {
@@ -270,7 +270,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 			time: time.Now(),
 		}
 		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
-		c.logger.Debugf("Locking for reader: %v", rk)
+		//c.logger.Debugf("Locking for reader: %v", rk)
 		if isRevalidating {
 			kind = RevalidatingReader
 		} else {
