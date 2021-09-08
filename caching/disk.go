@@ -281,13 +281,13 @@ func (s *storage) WriteTest() (bool, error) {
 	err := os.Remove(p)
 	if err != nil && !os.IsNotExist(err) {
 		msg := "Can't remove stray .healthcheck"
-		s.logger.Errorf(msg)
+		s.logger.WithError(err).Errorf(msg)
 		return false, errors.New(msg)
 	}
 	fd, err := os.Create(p)
 	if err != nil {
 		msg := "Can't create .healthcheck"
-		s.logger.Errorf(msg)
+		s.logger.WithError(err).Errorf(msg)
 		return false, errors.New(msg)
 	}
 	bs := make([]byte, 1024)
@@ -302,12 +302,12 @@ func (s *storage) WriteTest() (bool, error) {
 	}
 	err = fd.Close()
 	if err != nil {
-		s.logger.Infof("Closing .healthcheck errored")
+		s.logger.WithError(err).Infof("Closing .healthcheck errored")
 	}
 	err = os.Remove(p)
 	if err != nil {
 		msg := "Removing .healthcheck errored"
-		s.logger.Infof(msg)
+		s.logger.WithError(err).Infof(msg)
 		return false, errors.New(msg)
 	}
 
