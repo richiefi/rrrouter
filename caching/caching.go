@@ -170,12 +170,12 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, IsStale: false}, k, err
 		}
 		k = notFoundPreferredKey(keys)
-		logctx.Debugf("Miss: %v // %v", k, k.FsName())
+		//logctx.Debugf("Miss: %v // %v", k, k.FsName())
 		cr := c.getReaderOrWriter(cacheId, k, w, false, false, logctx)
 		return cr, k, nil
 	}
 
-	logctx.Debugf("Hit: %v // %v", k, k.FsName())
+	//logctx.Debugf("Hit: %v // %v", k, k.FsName())
 
 	var age int64
 	ageFromRevalidate := false
