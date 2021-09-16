@@ -6,7 +6,7 @@ import (
 )
 
 func TestStorageMetadata_encoding_is_custom_format(t *testing.T) {
-	s := "data.richie.app|/editions-eu/issue/3|{Accept-Encoding:[gzip, deflate],Origin:[https://x.example.com]}|{Accept-Ranges:[bytes],Access-Control-Allow-Credentials:[true]}|200|http://x|1631324460|1631557504|87489"
+	s := "data.richie.app|/editions-eu/issue/3|{Accept-Encoding:[gzip, deflate],Origin:[https://x.example.com]}|{}|200|http://x|1631324460|1631557504|87489"
 	sm, err := decodeStorageMetadata([]byte(s))
 	require.Nil(t, err)
 	s2 := encodeStorageMetadata(sm)

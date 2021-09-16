@@ -70,6 +70,9 @@ func sToHeader(h *http.Header, s *string) error {
 		return errors.New("Invalid format")
 	}
 	ts := strings.Trim(*s, "{}")
+	if len(ts) == 0 {
+		return nil
+	}
 	parts := strings.Split(ts, "],")
 	partsLen := len(parts)
 	for i, p := range parts {
