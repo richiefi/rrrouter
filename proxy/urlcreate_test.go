@@ -33,7 +33,7 @@ func TestTargetURL(t *testing.T) {
 	logger := testhelp.NewLogger(t)
 	rules := &Rules{
 		rules: []*Rule{
-			createRule("source.com/s/*", "https://target.com/$1"),
+			createRule("", "source.com", "/s/*", "https://target.com/$1"),
 		},
 		logger: logger,
 	}
@@ -44,7 +44,7 @@ func TestTargetURL(t *testing.T) {
 	for _, test := range tests {
 		res, err := router.createOutgoingURLs(test.source, "GET", nil)
 		require.Nil(t, err)
-		require.Equal(t, res.url, test.expect)
+		require.Equal(t, test.expect, res.url)
 	}
 }
 
@@ -56,8 +56,8 @@ func uparse(s string) *url.URL {
 	return u
 }
 
-func createRule(pat, dest string) *Rule {
-	r, err := NewRule(true, pat, dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
+func createRule(s, h, path, dest string) *Rule {
+	r, err := NewRule(true, s, h, path, dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
 	if err != nil {
 		panic(err)
 	}

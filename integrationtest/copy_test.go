@@ -45,13 +45,13 @@ func TestCopyTraffic_internal_headers_added(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    true,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -99,13 +99,13 @@ func TestCopyTraffic_no_internal_headers_to_external_copy(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    false,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -148,13 +148,13 @@ func TestCopyTraffic_copy_works_without_matching_proxy_target(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    false,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "127.0.0.1/nomatch/*",
+			Pattern:     "/nomatch/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -191,13 +191,13 @@ func TestCopyTraffic_copy_error_doesnt_go_to_caller(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("http://localhost:%d/$1", 18237),
 			Internal:    false,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -248,13 +248,13 @@ func TestCopyTraffic_copy_both_receive_request_body(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    true,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Pattern:     "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -293,25 +293,33 @@ func TestCopyTraffic_exampleapp_rule_matches_only_exampleapp(t *testing.T) {
 
 	rulestr := fmt.Sprintf(`{"rules": [
         {
-            "destination": "%[1]s/$1/exampleapp/$2.exampleapp.js",
+            "destination": "%[1]s/android/exampleapp/$1",
             "internal": false,
-            "pattern": "http://127.0.0.1/*/exampleapp/*.exampleapp.js",
+			"scheme": "http",
+			"host": "127.0.0.1",
+            "pattern": "/android/exampleapp/*",
             "type": "copy_traffic"
         },
         {
             "destination": "%[2]s/android/$1",
             "internal": false,
-            "pattern": "http://127.0.0.1/android/*"
+			"scheme": "http",
+			"host": "127.0.0.1",
+            "pattern": "/android/*"
         },
         {
             "destination": "%[2]s/ios/$1",
             "internal": false,
-            "pattern": "http://127.0.0.1/ios/*"
+			"scheme": "http",
+			"host": "127.0.0.1",
+            "pattern": "/ios/*"
         },
         {
             "destination": "%[2]s/windows/$1",
             "internal": false,
-            "pattern": "http://127.0.0.1/windows/*"
+			"scheme": "http",
+			"host": "127.0.0.1",
+            "pattern": "/windows/*"
         }
     ]}`, copyServer.URL, targetServer.URL)
 
@@ -325,7 +333,7 @@ func TestCopyTraffic_exampleapp_rule_matches_only_exampleapp(t *testing.T) {
 
 	defer listener.Close()
 
-	resp := sh.getURL("/android/exampleapp/10.exampleapp.js", listener.URL)
+	resp := sh.getURL("/android/exampleapp/x", listener.URL)
 	defer resp.Body.Close()
 
 	require.True(t, targetRequestReceived)
@@ -374,13 +382,15 @@ func TestCopyTraffic_matches_with_parameters(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "http://127.0.0.1/*/*/slots.json",
-			Destination: fmt.Sprintf("%s/v1/slots/$1/$2/slots.json", copyServer.URL),
+			Pattern:     "/windows/*",
+			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    true,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "http://127.0.0.1/windows/*",
+			Scheme:      "http",
+			Host:        "127.0.0.1",
+			Pattern:     "/windows/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
