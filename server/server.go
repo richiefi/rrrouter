@@ -185,9 +185,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					(*w).WriteHeader(cr.Metadata.Status)
 				}
 
-				err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
+				fatal, err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
 				if err != nil {
-					cache.Invalidate(key, logger)
+					if fatal {
+						cache.Invalidate(key, logger)
+					}
 					writeError(*w, err)
 				}
 				return
@@ -227,7 +229,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				(*w).WriteHeader(cr.Metadata.Status)
 
-				err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
+				_, err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
 				if err != nil {
 					writeError(*w, err)
 				}
@@ -507,17 +509,17 @@ func setRangedHeaders(rr *requestRange, contentLength int64, statusCode int, h *
 	return 206, h
 }
 
-func sendBody(w http.ResponseWriter, fd *os.File, size int64, rr *requestRange, logctx *apexlog.Entry) error {
+func sendBody(w http.ResponseWriter, fd *os.File, size int64, rr *requestRange, logctx *apexlog.Entry) (fatal bool, err error) {
 	rf, _ := w.(io.ReaderFrom)
 
 	var start int64
 	if rr != nil {
 		start = rr.start(size)
 	}
-	_, err := fd.Seek(start, 0)
+	_, err = fd.Seek(start, 0)
 	if err != nil {
 		logctx.WithField("size", size).WithField("start", start).WithField("error", err).Error("Could not seek to desired location")
-		return err
+		return true, err
 	}
 
 	readSize := size
@@ -528,13 +530,13 @@ func sendBody(w http.ResponseWriter, fd *os.File, size int64, rr *requestRange, 
 	written, err := rf.ReadFrom(io.LimitReader(fd, readSize))
 	if err != nil {
 		logctx.WithField("error", err).Info("Writing to client caused an error")
-		return err
+		return false, err
 	}
 	if written != readSize {
 		logctx.WithField("error", err).Error(fmt.Sprintf("Bytes written to client %v did not match %v", written, size))
 	}
 
-	return err
+	return false, err
 }
 
 func writeBody(reader io.ReadCloser, writer io.Writer, closeWriter bool, errCleanup func(), logctx *apexlog.Entry) error {
@@ -617,7 +619,7 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 			return err
 		}
 
-		err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rr, logctx)
+		_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rr, logctx)
 		if err != nil {
 			return err
 		}
