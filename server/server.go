@@ -512,13 +512,21 @@ func setRangedHeaders(rr *requestRange, contentLength int64, statusCode int, h *
 func sendBody(w http.ResponseWriter, fd *os.File, size int64, rr *requestRange, logctx *apexlog.Entry) (fatal bool, err error) {
 	rf, _ := w.(io.ReaderFrom)
 
+	logctx = logctx.WithField("size", size)
 	var start int64
 	if rr != nil {
 		start = rr.start(size)
+		logctx = logctx.WithField("start", start)
+		if rr.s != nil {
+			logctx = logctx.WithField("s", *rr.s)
+		}
+		if rr.e != nil {
+			logctx = logctx.WithField("e", *rr.e)
+		}
 	}
 	_, err = fd.Seek(start, 0)
 	if err != nil {
-		logctx.WithField("size", size).WithField("start", start).WithField("error", err).Error("Could not seek to desired location")
+		logctx.WithField("error", err).Error("Could not seek to desired location")
 		return true, err
 	}
 
