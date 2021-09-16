@@ -516,7 +516,7 @@ func sendBody(w http.ResponseWriter, fd *os.File, size int64, rr *requestRange, 
 	}
 	_, err := fd.Seek(start, 0)
 	if err != nil {
-		logctx.WithField("error", err).Error("Could not seek to desired location")
+		logctx.WithField("size", size).WithField("start", start).WithField("error", err).Error("Could not seek to desired location")
 		return err
 	}
 
