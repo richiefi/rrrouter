@@ -16,7 +16,6 @@ func TestConfigParse_error_cases(t *testing.T) {
 		`{"rules": [{"pattern": "asdf, "ddestination": "zap"}]}`,
 		`{"rules": [{"pattern": 1, "destination": "zap"}]}`,
 		`{"rules": [{"pattern": "asdf", "destination": ["zap"]}]}`,
-		`{"rules": [{"pattern": "plop", "destination": "zap$1"}]}`,
 	}
 	logger := testhelp.NewLogger(t)
 	for _, d := range badData {
@@ -25,14 +24,125 @@ func TestConfigParse_error_cases(t *testing.T) {
 	}
 }
 
-func TestConfigParse_success(t *testing.T) {
+func BenchmarkConfigParse_success(b *testing.B) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",  
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "/foo/*",  
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         },
         {
-            "pattern": "api.example.com/bar/*", 
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "X/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"scheme": "https",
+			"host": "api.example.com",
+            "pattern": "/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        }
+        ]
+    }`
+	rules, err := ParseRules([]byte(src), nil)
+	require.Nil(b, err)
+
+	b.ResetTimer()
+	for i := 0; i < b.N; i++ {
+		rules.Match("https://api.example.com/foo/zap/fnord", "GET")
+	}
+}
+
+func TestConfigParse_success(t *testing.T) {
+	src := `{"rules": [
+        {
+			"host": "api.example.com",
+            "pattern": "/foo/*",  
+            "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
+        },
+        {
+			"host": "api.example.com",
+            "pattern": "/bar/*", 
             "destination": "http://richie-barserver.herokuapp.com/v1/$1"
         }
         ]
@@ -57,21 +167,25 @@ func TestConfigParse_success(t *testing.T) {
 func TestConfigParse_host_headers(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",  
+			"host": "api.example.com",
+            "pattern": "/foo/*",  
             "destination": "http://localhost:1000/v1/$1",
         },
         {
-            "pattern": "api.example.com/bar/*", 
+			"host": "api.example.com",
+            "pattern": "/bar/*", 
             "destination": "http://localhost:1000/v1/$1",
 			"hostheader": "original"
         },
         {
-            "pattern": "api.example.com/bar/*", 
+			"host": "api.example.com",
+            "pattern": "/bar/*", 
             "destination": "http://localhost:1000/v1/$1",
 			"hostheader": "example.com:3800"
         },
         {
-            "pattern": "api.example.com/bar/*", 
+			"host": "api.example.com",
+            "pattern": "/bar/*", 
             "destination": "http://localhost:1000/v1/$1",
 			"hostheader": "destination"
         }
@@ -88,28 +202,31 @@ func TestConfigParse_host_headers(t *testing.T) {
 
 }
 
-func TestConfigParse_mismatched_wildcard_count_error(t *testing.T) {
+func TestConfigParse_destination_can_omit_wildcard_placement_marker(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*", 
-            "destination": "http://richie-fooserver.herokuapp.com/v1/$1/$2"
+			"host": "api.example.com",
+            "pattern": "/foo/*", 
+            "destination": "http://richie-fooserver.herokuapp.com/v1/"
         }
         ]
     }`
 	_, err := ParseRules([]byte(src), testhelp.NewLogger(t))
-	require.NotNil(t, err)
+	require.Nil(t, err)
 }
 
 func TestConfigParse_copy_traffic_success(t *testing.T) {
 	src := `{"rules": [
         {
             "type": "copy_traffic",
-            "pattern": "api.example.com/foo/*",
+			"host": "api.example.com",
+            "pattern": "/foo/*",
             "destination": "http://richie-copytarget.herokuapp.com/v1/$1",
             "methods": ["HEAD", "OPTIONS"]
         },
         {
-            "pattern": "api.example.com/foo/*",
+			"host": "api.example.com",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         }
         ]
@@ -138,12 +255,14 @@ func TestConfigParse_method_match_required(t *testing.T) {
 	src := `{"rules": [
         {
             "type": "copy_traffic",
-            "pattern": "api.example.com/foo/*",
+			"host": "api.example.com",
+            "pattern": "/foo/*",
             "destination": "http://richie-copytarget.herokuapp.com/v1/$1",
             "methods": ["HEAD", "OPTIONS"]
         },
         {
-            "pattern": "api.example.com/foo/*",
+			"host": "api.example.com",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1",
             "methods": ["HEAD", "OPTIONS"]
         }
@@ -170,12 +289,12 @@ func TestConfigParse_method_match_required(t *testing.T) {
 func TestConfigParse_copy_not_found_if_proxy_rule_found_first(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         },
         {
             "type": "copy_traffic",
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://richie-copytarget.herokuapp.com/v1/$1",
             "methods": ["HEAD", "OPTIONS"]
         }
@@ -202,7 +321,7 @@ func TestConfigParse_copy_not_found_if_proxy_rule_found_first(t *testing.T) {
 func TestConfigParse_copy_method_check(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1",
             "methods": ["HEAD ", "get", "DELETE", "trace", "POST", "foo", "OPTIONS", "GET", "PUT", "TRACE"]
         }
@@ -216,12 +335,12 @@ func TestConfigParse_copy_method_check(t *testing.T) {
 func TestConfigParse_rule_match_has_a_string_representation(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         },
         {
             "type": "copy_traffic",
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://richie-copytarget.herokuapp.com/v1/$1",
             "methods": ["HEAD", "OPTIONS"]
         }
@@ -240,11 +359,13 @@ func TestConfigParse_rule_match_has_a_string_representation(t *testing.T) {
 func TestConfigParse_rule_order_is_preserved_and_first_match_used(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",
+			"host": "api.example.com",
+            "pattern": "/foo/*",
             "destination": "http://example.com/v1/$1"
         },
         {
-            "pattern": "api.example.com/foo/*",
+			"host": "api.example.com",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         },
         ]
@@ -262,16 +383,16 @@ func TestConfigParse_rule_order_is_preserved_and_first_match_used(t *testing.T) 
 func TestConfigParse_rule_can_be_disabled(t *testing.T) {
 	src := `{"rules": [
         {
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://example.com/v1/$1",
 			"enabled": false
         },
         {
-            "pattern": "api.example.com/foo/*",
+            "pattern": "/foo/*",
             "destination": "http://richie-fooserver.herokuapp.com/v1/$1"
         },
         {
-            "pattern": "api.example.com/foo2/*",
+            "pattern": "/foo2/*",
             "destination": "http://richie-fooserver.herokuapp.com/v2/$1",
             "enabled": true
         },
