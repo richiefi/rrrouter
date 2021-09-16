@@ -45,22 +45,138 @@ type StorageMetadata struct {
 	Size           int64
 }
 
-func encodeStorageMetadata(sm StorageMetadata) ([]byte, error) {
-	b, err := json.Marshal(sm)
-	if err != nil {
-		fmt.Printf("Failed to serialize %v\n", sm)
-		return []byte{}, err
-	}
-	return b, nil
+func encodeStorageMetadata(sm StorageMetadata) []byte {
+	return []byte(encodeCustom(&sm))
 }
 
 func decodeStorageMetadata(b []byte) (StorageMetadata, error) {
 	sm := StorageMetadata{}
-	err := json.Unmarshal(b, &sm)
+	err := decodeCustom(&sm, &b)
 	if err != nil {
-		return StorageMetadata{}, err
+		err := json.Unmarshal(b, &sm)
+		if err != nil {
+			return StorageMetadata{}, err
+		}
 	}
 	return sm, nil
+}
+
+func sToInt64(s *string) (int64, error) {
+	return strconv.ParseInt(*s, 10, 64)
+}
+
+func sToHeader(h *http.Header, s *string) error {
+	if !strings.HasPrefix(*s, "{") {
+		return errors.New("Invalid format")
+	}
+	ts := strings.Trim(*s, "{}")
+	parts := strings.Split(ts, "],")
+	partsLen := len(parts)
+	for i, p := range parts {
+		if i == 0 {
+			p = p[0:]
+		} else if i == partsLen-1 {
+			p = p[:len(p)-1]
+		}
+		splat := strings.SplitN(p, ":", 2)
+		if len(splat) != 2 {
+			return errors.New(fmt.Sprintf("Odd header: %v", splat))
+		}
+		hk := splat[0]
+		h.Set(hk, strings.Trim(splat[1], "[]"))
+	}
+
+	return nil
+}
+
+func headerToS(h *http.Header) string {
+	if len(*h) == 0 {
+		return "{}"
+	}
+	keys := make([]string, 0)
+	for k, _ := range *h {
+		keys = append(keys, k)
+	}
+	sort.Strings(keys)
+	s := ""
+	i := 0
+	keysLen := len(keys)
+	for _, k := range keys {
+		s += k + ":[" + h.Get(k) + "]"
+		if i != keysLen-1 {
+			s += ","
+		}
+		i++
+	}
+	return "{" + s + "}"
+}
+
+func encodeCustom(sm *StorageMetadata) string {
+	s := ""
+	s += sm.Host + "|"
+	s += sm.Path + "|"
+	s += headerToS(&sm.RequestHeader) + "|"
+	s += headerToS(&sm.ResponseHeader) + "|"
+	s += strconv.Itoa(sm.Status) + "|"
+	s += sm.RedirectedURL + "|"
+	s += strconv.FormatInt(sm.Created, 10) + "|"
+	s += strconv.FormatInt(sm.Revalidated, 10) + "|"
+	s += strconv.FormatInt(sm.Size, 10)
+	return s
+}
+
+func decodeCustom(cm *StorageMetadata, bs *[]byte) error {
+	splat := strings.Split(string(*bs), "|")
+	if len(splat) != 9 {
+		return errors.New("Bad length")
+	}
+
+	cm.Host = splat[0]
+	cm.Path = splat[1]
+
+	cm.RequestHeader = http.Header{}
+	err := sToHeader(&cm.RequestHeader, &splat[2])
+	if err != nil {
+		return err
+	}
+
+	cm.ResponseHeader = http.Header{}
+	err = sToHeader(&cm.ResponseHeader, &splat[3])
+	if err != nil {
+		return err
+	}
+
+	v, err := sToInt64(&splat[4])
+	if err != nil {
+		return err
+	} else {
+		cm.Status = int(v)
+	}
+
+	cm.RedirectedURL = splat[5]
+
+	v, err = sToInt64(&splat[6])
+	if err != nil {
+		return err
+	} else {
+		cm.Created = v
+	}
+
+	v, err = sToInt64(&splat[7])
+	if err != nil {
+		return err
+	} else {
+		cm.Revalidated = v
+	}
+
+	v, err = sToInt64(&splat[8])
+	if err != nil {
+		return err
+	} else {
+		cm.Size = v
+	}
+
+	return nil
 }
 
 type StorageWriter interface {
@@ -281,13 +397,13 @@ func (s *storage) WriteTest() (bool, error) {
 	err := os.Remove(p)
 	if err != nil && !os.IsNotExist(err) {
 		msg := "Can't remove stray .healthcheck"
-		s.logger.Errorf(msg)
+		s.logger.WithError(err).Errorf(msg)
 		return false, errors.New(msg)
 	}
 	fd, err := os.Create(p)
 	if err != nil {
 		msg := "Can't create .healthcheck"
-		s.logger.Errorf(msg)
+		s.logger.WithError(err).Errorf(msg)
 		return false, errors.New(msg)
 	}
 	bs := make([]byte, 1024)
@@ -302,12 +418,12 @@ func (s *storage) WriteTest() (bool, error) {
 	}
 	err = fd.Close()
 	if err != nil {
-		s.logger.Infof("Closing .healthcheck errored")
+		s.logger.WithError(err).Infof("Closing .healthcheck errored")
 	}
 	err = os.Remove(p)
 	if err != nil {
 		msg := "Removing .healthcheck errored"
-		s.logger.Infof(msg)
+		s.logger.WithError(err).Infof(msg)
 		return false, errors.New(msg)
 	}
 
@@ -925,12 +1041,7 @@ func (sw *storageWriter) Close() error {
 		}
 	}
 
-	esm, err := encodeStorageMetadata(metadata)
-	if err != nil {
-		sw.Delete()
-		return err
-	}
-
+	esm := encodeStorageMetadata(metadata)
 	err = xattr.Set(sw.path, metadataXAttrName, esm)
 	if err != nil {
 		sw.Delete()
