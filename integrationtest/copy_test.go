@@ -45,13 +45,13 @@ func TestCopyTraffic_internal_headers_added(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    true,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -99,13 +99,13 @@ func TestCopyTraffic_no_internal_headers_to_external_copy(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    false,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -148,13 +148,13 @@ func TestCopyTraffic_copy_works_without_matching_proxy_target(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    false,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "/nomatch/*",
+			Path:        "/nomatch/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -191,13 +191,13 @@ func TestCopyTraffic_copy_error_doesnt_go_to_caller(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("http://localhost:%d/$1", 18237),
 			Internal:    false,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -248,13 +248,13 @@ func TestCopyTraffic_copy_both_receive_request_body(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    true,
 			Type:        sp("copy_traffic"),
 		},
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -297,7 +297,7 @@ func TestCopyTraffic_exampleapp_rule_matches_only_exampleapp(t *testing.T) {
             "internal": false,
 			"scheme": "http",
 			"host": "127.0.0.1",
-            "pattern": "/android/exampleapp/*",
+            "path": "/android/exampleapp/*",
             "type": "copy_traffic"
         },
         {
@@ -305,21 +305,21 @@ func TestCopyTraffic_exampleapp_rule_matches_only_exampleapp(t *testing.T) {
             "internal": false,
 			"scheme": "http",
 			"host": "127.0.0.1",
-            "pattern": "/android/*"
+            "path": "/android/*"
         },
         {
             "destination": "%[2]s/ios/$1",
             "internal": false,
 			"scheme": "http",
 			"host": "127.0.0.1",
-            "pattern": "/ios/*"
+            "path": "/ios/*"
         },
         {
             "destination": "%[2]s/windows/$1",
             "internal": false,
 			"scheme": "http",
 			"host": "127.0.0.1",
-            "pattern": "/windows/*"
+            "path": "/windows/*"
         }
     ]}`, copyServer.URL, targetServer.URL)
 
@@ -382,7 +382,7 @@ func TestCopyTraffic_matches_with_parameters(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/windows/*",
+			Path:        "/windows/*",
 			Destination: fmt.Sprintf("%s/$1", copyServer.URL),
 			Internal:    true,
 			Type:        sp("copy_traffic"),
@@ -390,7 +390,7 @@ func TestCopyTraffic_matches_with_parameters(t *testing.T) {
 		{
 			Scheme:      "http",
 			Host:        "127.0.0.1",
-			Pattern:     "/windows/*",
+			Path:        "/windows/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},

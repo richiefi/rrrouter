@@ -32,7 +32,7 @@ func TestSecret_unknown_denied(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -71,7 +71,7 @@ func TestSecret_old_accepted(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -109,7 +109,7 @@ func TestSecret_first_sent(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},

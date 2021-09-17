@@ -26,7 +26,7 @@ func TestNoConnection_return_bad_gateway(t *testing.T) {
 	}
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: "http://127.0.0.1:13243/$1",
 			Internal:    false,
 		},
@@ -51,7 +51,7 @@ func TestNoConnection_retries_with_sleeps(t *testing.T) {
 	}
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: "http://127.0.0.1:13243/$1",
 			Internal:    false,
 		},
@@ -83,12 +83,12 @@ func TestNoConnection_rules_with_retry_rule_short_circuit_retries_to_retry_rule_
 		RetryTimes: []int{10, 80, 160, 240},
 	}
 	retryRuleSource := proxy.RuleSource{
-		Pattern:     "/t/*",
+		Path:        "/t/*",
 		Destination: "http://127.0.0.1:13243/retries/go/here",
 	}
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: "http://127.0.0.1:13243/$1",
 			RetryRule:   &retryRuleSource,
 		},
@@ -128,7 +128,7 @@ func TestNoConnection_no_POST_retry(t *testing.T) {
 	}
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: "http://127.0.0.1:13243/$1",
 			Internal:    false,
 		},
@@ -183,7 +183,7 @@ func TestBodyReceivedAfterRetry(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("http://127.0.0.1:%d/$1", port),
 			Internal:    false,
 		},

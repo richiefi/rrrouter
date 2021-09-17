@@ -1510,7 +1510,7 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "/t/*",
+			Path:             "/t/*",
 			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:         false,
 			Recompression:    true,
@@ -1795,7 +1795,7 @@ func TestCache_entry_is_revalidated_for_waiting_clients_with_rules_changed(t *te
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "/t/*",
+			Path:             "/t/*",
 			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:         false,
 			Recompression:    true,
@@ -2037,7 +2037,7 @@ func testConfig() *config.Config {
 func rulesWithCacheId(t *testing.T, cacheId string, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:      false,
 			Recompression: false,
@@ -2054,7 +2054,7 @@ func rulesWithCacheId(t *testing.T, cacheId string, originServer *httptest.Serve
 func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedirects bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "/t/*",
+			Path:             "/t/*",
 			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:         false,
 			Recompression:    false,
@@ -2072,7 +2072,7 @@ func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedir
 func rulesWithCacheIdFlattenredirectsRecompression(t *testing.T, cacheId string, flattenRedirects bool, recompression bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "/t/*",
+			Path:             "/t/*",
 			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:         false,
 			Recompression:    recompression,
@@ -2090,7 +2090,7 @@ func rulesWithCacheIdFlattenredirectsRecompression(t *testing.T, cacheId string,
 func rulesWithCacheIdFlattenredirectsResponseHeaders(t *testing.T, cacheId string, flattenRedirects bool, responseHeaders map[string]string, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "/t/*",
+			Path:             "/t/*",
 			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:         false,
 			Recompression:    false,
@@ -2109,7 +2109,7 @@ func rulesWithCacheIdFlattenredirectsResponseHeaders(t *testing.T, cacheId strin
 func rulesWithCacheIdRevalidate(t *testing.T, cacheId string, forceRevalidate int, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:         "/t/*",
+			Path:            "/t/*",
 			Destination:     fmt.Sprintf("%s/$1", originServer.URL),
 			Internal:        false,
 			Recompression:   false,

@@ -31,7 +31,7 @@ func TestRedirectNotFollowed(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},

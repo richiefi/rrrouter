@@ -41,7 +41,7 @@ type RuleSource struct {
 	Methods          []string          `json:"methods"`
 	Scheme           string            `json:"scheme"`
 	Host             string            `json:"host"`
-	Pattern          string            `json:"pattern"`
+	Path             string            `json:"path"`
 	Destination      string            `json:"destination"`
 	Internal         bool              `json:"internal"`
 	Type             *string           `json:"type"`
@@ -73,8 +73,8 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 			enabled = *rsrc.Enabled
 		}
 
-		if rsrc.Pattern == "" || rsrc.Destination == "" {
-			return nil, fmt.Errorf("rule had empty pattern %q or destination %q", rsrc.Pattern, rsrc.Destination)
+		if rsrc.Path == "" || rsrc.Destination == "" {
+			return nil, fmt.Errorf("rule had empty path %q or destination %q", rsrc.Path, rsrc.Destination)
 		}
 		methodMap, badmeths := checkMethods(rsrc.Methods)
 		if len(badmeths) > 0 {
@@ -133,7 +133,7 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 				retryRule = rRules.rules[0]
 			}
 		}
-		rule, err := NewRule(enabled, rsrc.Scheme, rsrc.Host, rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
+		rule, err := NewRule(enabled, rsrc.Scheme, rsrc.Host, rsrc.Path, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
 		if err != nil {
 			return nil, err
 		}

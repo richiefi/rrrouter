@@ -11,7 +11,7 @@ type Rule struct {
 	enabled          bool
 	scheme           string
 	host             string
-	pattern          string
+	path             string
 	wci              []int
 	dest             string
 	internal         bool
@@ -41,23 +41,23 @@ const (
 )
 
 // NewRule builds a new Rule
-func NewRule(enabled bool, scheme, host, pattern, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
+func NewRule(enabled bool, scheme, host, path, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
 	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, flattenRedirects bool, retryRule *Rule) (*Rule, error) {
-	if len(pattern) == 0 {
-		return nil, errors.New("Empty pattern")
+	if len(path) == 0 {
+		return nil, errors.New("Empty path")
 	}
 	if len(destination) == 0 {
 		return nil, errors.New("Empty destination")
 	}
-	lowpat := strings.ToLower(pattern)
+	lowpat := strings.ToLower(path)
 	firstIdx := strings.Index(lowpat, "*")
 	wci := make([]int, 0)
 	if firstIdx != -1 {
 		lastIdx := strings.LastIndex(lowpat, "*")
 		if firstIdx != lastIdx {
-			return nil, errors.New("Wildcard count in pattern > 1")
+			return nil, errors.New("Wildcard count in path > 1")
 		} else if firstIdx != len(lowpat)-1 {
-			return nil, errors.New("Wildcard must be placed as last character in the pattern")
+			return nil, errors.New("Wildcard must be placed as last character in the path")
 		}
 		wci = append(wci, firstIdx)
 	}
@@ -66,7 +66,7 @@ func NewRule(enabled bool, scheme, host, pattern, destination string, internal b
 		enabled:          enabled,
 		scheme:           scheme,
 		host:             host,
-		pattern:          pattern,
+		path:             path,
 		wci:              wci,
 		dest:             destination,
 		internal:         internal,
@@ -101,7 +101,7 @@ func (r *Rule) String() string {
 		}
 		methods = strings.Join(mlist, ",")
 	}
-	return fmt.Sprintf("Rule (%s,%s) %s %q -> %q", intext, rtype, methods, r.pattern, r.dest)
+	return fmt.Sprintf("Rule (%s,%s) %s %q -> %q", intext, rtype, methods, r.path, r.dest)
 }
 
 func (r *Rule) attemptMatch(scheme, host, uri string) (*string, error) {
@@ -116,7 +116,7 @@ func (r *Rule) attemptMatch(scheme, host, uri string) (*string, error) {
 			return nil, nil
 		}
 
-		idx := strings.Index(uri, r.pattern[:wcIdx])
+		idx := strings.Index(uri, r.path[:wcIdx])
 		if idx != 0 {
 			return nil, nil
 		}
@@ -125,11 +125,11 @@ func (r *Rule) attemptMatch(scheme, host, uri string) (*string, error) {
 		d := strings.Replace(r.dest, "$1", captured, 1)
 		return &d, nil
 	} else if len(r.wci) == 0 {
-		if r.pattern == uri {
+		if r.path == uri {
 			return &r.dest, nil
 		}
 		return nil, nil
 	} else {
-		return nil, errors.New("Wildcard count in pattern > 1")
+		return nil, errors.New("Wildcard count in path > 1")
 	}
 }
