@@ -1,6 +1,7 @@
 package proxy
 
 import (
+	"net/url"
 	"testing"
 )
 
@@ -11,121 +12,93 @@ func TestRule(t *testing.T) {
 		shouldError bool
 	}
 	tests := []struct {
+		scheme      string
+		host        string
 		pat         string
-		re          string
 		dest        string
 		shouldError bool
 		rtests      []RuleTest
 	}{
 		{
-			pat:  "app.example.com/config/v1/*",
-			re:   `(?i)\Ahttps?://app\.example\.com/config/v1/(.*)\z`,
-			dest: "https://richie-appconfig.herokuapp.com/v1/$1",
+			scheme: "https",
+			host:   "app.example.com",
+			pat:    "/config/v1/*",
+			dest:   "https://richie-appconfig.herokuapp.com/v1/$1",
 			rtests: []RuleTest{
 				{
-					input:  "foo",
-					expect: "",
-				},
-				{
-					input:  "http://app.example.com/config/v1/helloworld",
+					input:  "https://app.example.com/config/v1/helloworld",
 					expect: "https://richie-appconfig.herokuapp.com/v1/helloworld",
 				},
 				{
 					input:  "https://app.example.com/config/v1/paz",
 					expect: "https://richie-appconfig.herokuapp.com/v1/paz",
 				},
-			},
-		},
-		{
-			pat:  "https://*-dist.example.com/whoami/*",
-			re:   `(?i)\Ahttps://(.*)-dist\.example\.com/whoami/(.*)\z`,
-			dest: "https://richie-appconfig.herokuapp.com/v1/$2",
-			rtests: []RuleTest{
 				{
-					input:  "https://cust-dist.example.com/whoami/foo",
-					expect: "https://richie-appconfig.herokuapp.com/v1/foo",
-				},
-				{
-					input:  "http://cust-dist.example.com/whoami/foo",
+					input:  "http://app.example.com/config/v1/paz",
 					expect: "",
 				},
 			},
 		},
 		{
-			pat:  "https://app.example.com/file-dist/*",
-			re:   `(?i)\Ahttps://app\.example\.com/file-dist/(.*)\z`,
-			dest: "https://filestore.example.com/file-dist/file-dist/$1",
+			host: "app.example.com",
+			pat:  "/config/v1/*",
+			dest: "https://richie-appconfig.herokuapp.com/v1/$1",
 			rtests: []RuleTest{
 				{
-					input:  "https://app.example.com/file-dist/frank/zappa",
-					expect: "https://filestore.example.com/file-dist/file-dist/frank/zappa",
+					input:  "http://foo",
+					expect: "",
+				},
+				{
+					input:  "https://app.example.com/config/v1/helloworld",
+					expect: "https://richie-appconfig.herokuapp.com/v1/helloworld",
+				},
+				{
+					input:  "http://app.example.com/config/v1/paz",
+					expect: "https://richie-appconfig.herokuapp.com/v1/paz",
 				},
 			},
 		},
 		{
-			pat:  "https://api.example.com/v1/*",
-			re:   `(?i)\Ahttps://api\.example\.com/v1/(.*)\z`,
-			dest: "https://exampleapp-api.herokuapp.com/$1",
+			pat:  "/config/v1/*",
+			dest: "https://richie-appconfig.herokuapp.com/v1/$1",
 			rtests: []RuleTest{
 				{
-					input:  "https://api.example.com/v1/q",
-					expect: "https://exampleapp-api.herokuapp.com/q",
+					input:  "http://foo",
+					expect: "",
+				},
+				{
+					input:  "https://app.example.com/config/v1/helloworld",
+					expect: "https://richie-appconfig.herokuapp.com/v1/helloworld",
+				},
+				{
+					input:  "http://app.example.com/config/v1/paz",
+					expect: "https://richie-appconfig.herokuapp.com/v1/paz",
 				},
 			},
 		},
 		{
-			pat:         "https://api.example.com/v1/*",
-			re:          `(?i)\Ahttps://api\.example\.com/v1/(.*)\z`,
-			dest:        "https://exampleapp-api.herokuapp.com/$1/$2",
+			pat:         "",
+			dest:        "",
 			shouldError: true,
 		},
 		{
-			pat:         "https://api.example.com/v1/*",
-			re:          `(?i)\Ahttps://api\.example\.com/v1/(.*)\z`,
-			dest:        "https://exampleapp-api.herokuapp.com/$1/\\$2",
-			shouldError: false,
-			rtests: []RuleTest{
-				{
-					input:  "https://api.example.com/v1/q",
-					expect: "https://exampleapp-api.herokuapp.com/q/$2",
-				},
-			},
+			pat:         "x",
+			dest:        "",
+			shouldError: true,
 		},
 		{
-			pat:         "https://app.example.com/*/exampleapp/*.exampleapp.js",
-			re:          `(?i)\Ahttps://app\.example\.com/(.*)/exampleapp/(.*)\.exampleapp\.js\z`,
-			dest:        "https://richie-exampleapp.herokuapp.com/$1/exampleapp/$2.exampleapp.js",
-			shouldError: false,
-			rtests: []RuleTest{
-				{
-					input:  "https://app.example.com/ios/exampleapp/100.exampleapp.js",
-					expect: "https://richie-exampleapp.herokuapp.com/ios/exampleapp/100.exampleapp.js",
-				},
-				{
-					input:  "https://app.example.com/android/exampleapp/1.0.0.0.exampleapp.js",
-					expect: "https://richie-exampleapp.herokuapp.com/android/exampleapp/1.0.0.0.exampleapp.js",
-				},
-			},
+			pat:         "*/*",
+			dest:        "https://app.example.com/$1/$2",
+			shouldError: true,
 		},
 		{
-			pat:         "*://app.example.com/*/exampleapp/*.exampleapp.js",
-			re:          `(?i)\A(.*)://app\.example\.com/(.*)/exampleapp/(.*)\.exampleapp\.js\z`,
-			dest:        "$1://richie-exampleapp.herokuapp.com/$2/exampleapp/$3.exampleapp.js",
-			shouldError: false,
-			rtests: []RuleTest{
-				{
-					input:  "http://app.example.com/ios/exampleapp/100.exampleapp.js",
-					expect: "http://richie-exampleapp.herokuapp.com/ios/exampleapp/100.exampleapp.js",
-				},
-				{
-					input:  "https://app.example.com/ios/exampleapp/100.exampleapp.js",
-					expect: "https://richie-exampleapp.herokuapp.com/ios/exampleapp/100.exampleapp.js",
-				},
-			},
+			pat:         "*/end",
+			dest:        "https://app.example.com/$1",
+			shouldError: true,
 		},
 	}
 	for _, test := range tests {
-		r, err := NewRule(true, test.pat, test.dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
+		r, err := NewRule(true, test.scheme, test.host, test.pat, test.dest, false, map[string]bool{}, ruleTypeProxy, HostHeader{Behavior: HostHeaderDefault}, false, "", 0, map[string]string{}, false, nil)
 		if err != nil && !test.shouldError {
 			t.Errorf("Unexpected error compiling rule from %q, %q: %s", test.pat, test.dest, err)
 			continue
@@ -137,11 +110,12 @@ func TestRule(t *testing.T) {
 			continue
 		}
 
-		if r.re.String() != test.re {
-			t.Errorf("Rule %q resulted in regexp %q, expected %q", test.pat, r.re.String(), test.re)
-		}
 		for _, ruletest := range test.rtests {
-			output, err := r.attemptMatch(ruletest.input)
+			u, err := url.Parse(ruletest.input)
+			if err != nil && !ruletest.shouldError {
+				t.Errorf("Invalid URL: %s", ruletest.input)
+			}
+			output, err := r.attemptMatch(u.Scheme, u.Host, u.RequestURI())
 			if err != nil && !ruletest.shouldError {
 				t.Errorf("Matching %q against rule %s caused an error: %s", ruletest.input, r.String(), err)
 			} else if err == nil && ruletest.shouldError {

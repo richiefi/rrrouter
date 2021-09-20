@@ -41,7 +41,7 @@ func TestConnection_client_requests_brotli_but_compression_override_is_not_set_a
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: false,
@@ -82,7 +82,7 @@ func TestConnection_client_requests_brotli_from_origin_gets_brotli(t *testing.T)
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: true,
@@ -124,7 +124,7 @@ func TestConnection_client_requests_brotli_from_gzip_origin_gets_brotli(t *testi
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: true,
@@ -169,7 +169,7 @@ func TestConnection_client_requests_brotli_from_gzip_origin_no_transform_set_get
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: true,
@@ -212,7 +212,7 @@ func TestConnection_client_requests_gzip_from_gzip_origin_gets_gzip(t *testing.T
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: true,
@@ -262,7 +262,7 @@ func TestConnection_client_requests_brotli_from_plaintext_whitelisted_content_ty
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: true,
@@ -335,7 +335,7 @@ func TestConnection_broken_client_requests_gzip_identity_from_plaintext_whitelis
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:       "127.0.0.1/t/*",
+			Path:          "/t/*",
 			Destination:   fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:      false,
 			Recompression: true,
@@ -377,7 +377,7 @@ func TestConnection_internal_headers_added(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -414,7 +414,7 @@ func TestConnection_internal_headers_passed_through(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -453,7 +453,7 @@ func TestConnection_external_no_headers_added(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 		},
@@ -490,7 +490,7 @@ func TestConnection_internal_headers_stripped_with_external_target(t *testing.T)
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 		},
@@ -526,7 +526,7 @@ func TestConnection_other_headers_passed_through_to_internal(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},
@@ -560,7 +560,7 @@ func TestConnection_other_headers_passed_through_to_external(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 		},
@@ -595,7 +595,7 @@ func TestConnection_response_headers_and_successful_status_passed_through_to_cli
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 		},
@@ -628,7 +628,7 @@ func TestConnection_response_non_success_status_code_passed_through_to_the_clien
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 		},
@@ -661,7 +661,7 @@ func TestConnection_response_body_passed_through_to_the_client(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 		},
@@ -698,7 +698,7 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 			HostHeader:  "",
@@ -728,7 +728,8 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 
 	rules, err = proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "example.com/t/*",
+			Host:        "example.com",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 			HostHeader:  "original",
@@ -759,7 +760,8 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 
 	rules, err = proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "example.com/t/*",
+			Host:        "example.com",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 			HostHeader:  "destination",
@@ -791,7 +793,8 @@ func TestConnection_host_header_behaviors(t *testing.T) {
 
 	rules, err = proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "example.com/t/*",
+			Host:        "example.com",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    false,
 			HostHeader:  "example.com:3800",
@@ -825,7 +828,7 @@ func TestConnection_access_control_allow_origin_override_passed_to_response(t *t
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:         "127.0.0.1/t/*",
+			Path:            "/t/*",
 			Destination:     fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:        false,
 			ResponseHeaders: map[string]string{"access-control-allow-origin": "a,b"},
@@ -855,7 +858,7 @@ func TestConnection_timing_allow_origin_override_passed_to_response(t *testing.T
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:         "127.0.0.1/t/*",
+			Path:            "/t/*",
 			Destination:     fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:        false,
 			ResponseHeaders: map[string]string{"timing-allow-origin ": " a,b"},
@@ -886,7 +889,7 @@ func TestConnection_redirects_pass_rrrouter_by_default(t *testing.T) {
 
 		rules, err := proxy.NewRules([]proxy.RuleSource{
 			{
-				Pattern:     "127.0.0.1/t/*",
+				Path:        "/t/*",
 				Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 				Internal:    false,
 			},
@@ -930,7 +933,7 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:          "127.0.0.1/t/matches/*",
+			Path:             "/t/matches/*",
 			Destination:      fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:         false,
 			FlattenRedirects: true,

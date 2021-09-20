@@ -32,7 +32,7 @@ func TestPost_data_gets_to_server(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Pattern:     "127.0.0.1/t/*",
+			Path:        "/t/*",
 			Destination: fmt.Sprintf("%s/$1", targetServer.URL),
 			Internal:    true,
 		},

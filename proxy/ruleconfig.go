@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"errors"
 	"fmt"
+	"net/url"
 	"strings"
 
 	apexlog "github.com/apex/log"
@@ -38,7 +39,9 @@ var (
 type RuleSource struct {
 	Enabled          *bool             `json:"enabled"`
 	Methods          []string          `json:"methods"`
-	Pattern          string            `json:"pattern"`
+	Scheme           string            `json:"scheme"`
+	Host             string            `json:"host"`
+	Path             string            `json:"path"`
 	Destination      string            `json:"destination"`
 	Internal         bool              `json:"internal"`
 	Type             *string           `json:"type"`
@@ -70,8 +73,8 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 			enabled = *rsrc.Enabled
 		}
 
-		if rsrc.Pattern == "" || rsrc.Destination == "" {
-			return nil, fmt.Errorf("rule had empty pattern %q or destination %q", rsrc.Pattern, rsrc.Destination)
+		if rsrc.Path == "" || rsrc.Destination == "" {
+			return nil, fmt.Errorf("rule had empty path %q or destination %q", rsrc.Path, rsrc.Destination)
 		}
 		methodMap, badmeths := checkMethods(rsrc.Methods)
 		if len(badmeths) > 0 {
@@ -130,7 +133,7 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 				retryRule = rRules.rules[0]
 			}
 		}
-		rule, err := NewRule(enabled, rsrc.Pattern, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
+		rule, err := NewRule(enabled, rsrc.Scheme, rsrc.Host, rsrc.Path, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
 		if err != nil {
 			return nil, err
 		}
@@ -228,10 +231,15 @@ func (res *RuleMatchResults) String() string {
 }
 
 // Match matches the path and method against the Rules list and returns RuleMatchResults
-func (rs *Rules) Match(s string, method string) (*RuleMatchResults, error) {
+func (rs *Rules) Match(s, method string) (*RuleMatchResults, error) {
 	var proxyMatch *ruleMatch
 	var copyMatch *ruleMatch
 
+	u, err := url.Parse(s)
+	if err != nil {
+		return nil, err
+	}
+	uri := u.RequestURI()
 RulesLoop:
 	for _, r := range rs.rules {
 		if r.enabled == false {
@@ -240,7 +248,7 @@ RulesLoop:
 		if len(r.methods) > 0 && !r.methods[method] {
 			continue
 		}
-		result, err := r.attemptMatch(s)
+		result, err := r.attemptMatch(u.Scheme, u.Host, uri)
 		if err != nil {
 			return nil, err
 		}
