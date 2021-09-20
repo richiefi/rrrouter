@@ -144,12 +144,22 @@ func TestConfigParse_success(t *testing.T) {
 			"host": "api.example.com",
             "path": "/bar/*", 
             "destination": "http://richie-barserver.herokuapp.com/v1/$1"
+        },
+        {
+			"host": "api.example.com",
+            "path": "*", 
+            "destination": "http://richie-barserver.herokuapp.com/v1/$1"
+        },
+        {
+			"host": "api2.example.com",
+            "path": "/*", 
+            "destination": "http://richie-barserver.herokuapp.com/v1/$1"
         }
         ]
     }`
 	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
 	require.Nil(t, err)
-	require.Equal(t, len(rules.rules), 2)
+	require.Equal(t, len(rules.rules), 4)
 
 	ruleMatchResults, err := rules.Match("https://api.example.com/foo/zap/fnord", "GET")
 	require.Nil(t, err)
@@ -162,6 +172,18 @@ func TestConfigParse_success(t *testing.T) {
 	require.NotNil(t, ruleMatchResults)
 	require.NotNil(t, ruleMatchResults.proxyMatch)
 	require.Equal(t, ruleMatchResults.proxyMatch.target, "http://richie-barserver.herokuapp.com/v1/flarp/blart")
+
+	ruleMatchResults, err = rules.Match("http://api.example.com/", "GET")
+	require.Nil(t, err)
+	require.NotNil(t, ruleMatchResults)
+	require.NotNil(t, ruleMatchResults.proxyMatch)
+	require.Equal(t, ruleMatchResults.proxyMatch.target, "http://richie-barserver.herokuapp.com/v1/")
+
+	ruleMatchResults, err = rules.Match("http://api2.example.com/", "GET")
+	require.Nil(t, err)
+	require.NotNil(t, ruleMatchResults)
+	require.NotNil(t, ruleMatchResults.proxyMatch)
+	require.Equal(t, ruleMatchResults.proxyMatch.target, "http://richie-barserver.herokuapp.com/v1/")
 }
 
 func TestConfigParse_host_headers(t *testing.T) {

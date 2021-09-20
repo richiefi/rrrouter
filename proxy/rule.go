@@ -110,9 +110,14 @@ func (r *Rule) attemptMatch(scheme, host, uri string) (*string, error) {
 	}
 
 	if len(r.wci) == 1 {
-		pathLen := len(uri)
+		if uri == "/" && (r.path == "*" || r.path == "/*") {
+			d := strings.Replace(r.dest, "$1", "", 1)
+			return &d, nil
+		}
+
+		uriLen := len(uri)
 		wcIdx := r.wci[0]
-		if pathLen-1 < wcIdx {
+		if uriLen-1 < wcIdx {
 			return nil, nil
 		}
 
