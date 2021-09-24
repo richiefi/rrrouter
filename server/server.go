@@ -226,8 +226,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				if cr.Kind == caching.RevalidatingReader {
 					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-				} else {
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+				} else if cr.Kind == caching.NotFoundReader {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 				}
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
