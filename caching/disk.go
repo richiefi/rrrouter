@@ -19,7 +19,6 @@ import (
 	"sort"
 	"strconv"
 	"strings"
-	"sync"
 	"syscall"
 	"time"
 )
@@ -199,19 +198,18 @@ type DiskStorage struct {
 func NewDiskStorage(id string, path string, size int64, logger *apexlog.Logger, now func() time.Time) Storage {
 	createStoragePath(path)
 	s := &storage{
-		id:                        id,
-		path:                      path,
-		maxSizeBytes:              size,
-		startedAt:                 time.Now().Unix(),
-		sizeBytes:                 0,
-		itemsLock:                 sync.Mutex{},
-		withAccessTime:            make(map[itemName]accessedItem, 0),
-		storableAccessedItems:     make(map[itemName]storableAccessedItem, 0),
-		withoutAccessTime:         make(map[itemName]item, 0),
-		storableAccessedItemsLock: sync.Mutex{},
-		atimesPath:                filepath.Join(path, "atimes"),
-		logger:                    logger,
-		now:                       now,
+		id:                    id,
+		path:                  path,
+		maxSizeBytes:          size,
+		startedAt:             time.Now().Unix(),
+		sizeBytes:             0,
+		itemsChan:             make(chan *itemWithOp, 100000),
+		withAccessTime:        make(map[itemName]accessedItem, 0),
+		storableAccessedItems: make(map[itemName]storableAccessedItem, 0),
+		withoutAccessTime:     make(map[itemName]item, 0),
+		atimesPath:            filepath.Join(path, "atimes"),
+		logger:                logger,
+		now:                   now,
 	}
 
 	go s.runSizeLimiter()
@@ -220,15 +218,15 @@ func NewDiskStorage(id string, path string, size int64, logger *apexlog.Logger, 
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
 		go s.signalListener(sigChan)
+		t := 30
+		if sleepTime := os.Getenv("ATIME_FLUSH_INTERVAL"); len(sleepTime) > 0 {
+			if it, err := strconv.Atoi(sleepTime); err == nil {
+				t = it
+			}
+		}
 		go func() {
 			for {
-				s.flushStorableAccessTimes()
-				t := 30
-				if sleepTime := os.Getenv("ATIME_FLUSH_INTERVAL"); len(sleepTime) > 0 {
-					if it, err := strconv.Atoi(sleepTime); err == nil {
-						t = it
-					}
-				}
+				s.itemsChan <- &itemWithOp{op: opFlushStorable}
 				time.Sleep(time.Second * time.Duration(t))
 			}
 		}()
@@ -253,18 +251,17 @@ type accessTime uint32
 type itemName string
 
 type storage struct {
-	id                        string
-	path                      string
-	maxSizeBytes              int64
-	startedAt                 int64
-	sizeBytes                 int64
-	itemsLock                 sync.Mutex
-	withAccessTime            map[itemName]accessedItem
-	withoutAccessTime         map[itemName]item
-	isReplaced                bool
-	atimesPath                string
-	storableAccessedItems     map[itemName]storableAccessedItem
-	storableAccessedItemsLock sync.Mutex
+	id                    string
+	path                  string
+	maxSizeBytes          int64
+	startedAt             int64
+	sizeBytes             int64
+	itemsChan             chan *itemWithOp
+	withAccessTime        map[itemName]accessedItem
+	withoutAccessTime     map[itemName]item
+	isReplaced            bool
+	atimesPath            string
+	storableAccessedItems map[itemName]storableAccessedItem
 
 	logger *apexlog.Logger
 	now    func() time.Time
@@ -273,6 +270,21 @@ type storage struct {
 type accessedItem struct {
 	accessTime    accessTime
 	sizeKilobytes uint32
+}
+
+type itemOp int
+
+const (
+	opAdd itemOp = iota
+	opAccessTime
+	opFlushStorable
+)
+
+type itemWithOp struct {
+	op                   itemOp
+	name                 itemName
+	accessedItem         *accessedItem
+	storableAccessedItem *storableAccessedItem
 }
 
 type storableAccessedItem struct {
@@ -310,13 +322,11 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan KeyInf
 		path:           fp,
 		wasRevalidated: revalidate,
 		closeFinisher: func(name string, size int64) {
-			s.itemsLock.Lock()
-			s.withAccessTime[itemName(name)] = accessedItem{
+			ai := accessedItem{
 				accessTime:    accessTime(time.Now().Unix() - s.startedAt),
 				sizeKilobytes: uint32(size / 1024),
 			}
-			s.sizeBytes += size
-			s.itemsLock.Unlock()
+			s.itemsChan <- &itemWithOp{op: opAdd, name: itemName(name), accessedItem: &ai}
 		}, now: func() time.Time {
 			return s.now()
 		}, closeNotifier: closeNotifier,
@@ -469,12 +479,10 @@ func (s *storage) readFiles(path string) int {
 			withoutAccessTime[itemName(prefixWithItemName(name)+name)] = item{sizeKilobytes: uint32(size / 1024)}
 		}
 	}
-	s.itemsLock.Lock()
 	for n, i := range withoutAccessTime {
 		s.withoutAccessTime[n] = i
 	}
 	s.sizeBytes += sizeBytes
-	s.itemsLock.Unlock()
 
 	return fileCount
 }
@@ -490,32 +498,60 @@ func (s *storage) runSizeLimiter() {
 		s.logger.Infof("Errored when reading access times: %v", err)
 	} else if len(withAccessTime) > 0 {
 		s.logger.Infof("Read access times of %v files in %v", len(withAccessTime), time.Now().Sub(t))
-		s.itemsLock.Lock()
 		t = time.Now()
 		for n, i := range withAccessTime {
 			s.withAccessTime[n] = i
 			delete(s.withoutAccessTime, n)
 		}
 		s.logger.Infof("Set access times of %v files in %v", len(withAccessTime), time.Now().Sub(t))
-		s.itemsLock.Unlock()
 	}
 
 	// Initialization done, go at it forever:
 
 	sleepTime := time.Second * 5
+	lastRun := time.Now().Add(-sleepTime)
+	printChanLen := false
 	for {
 		if s.isReplaced {
 			break
 		}
+
+		io := <-s.itemsChan
+		switch io.op {
+		case opAdd:
+			if io.accessedItem != nil {
+				s.withAccessTime[io.name] = *io.accessedItem
+				s.sizeBytes += int64(io.accessedItem.sizeKilobytes * 1024)
+			}
+		case opAccessTime:
+			if io.accessedItem != nil {
+				s.withAccessTime[io.name] = *io.accessedItem
+			}
+			if io.storableAccessedItem != nil {
+				s.storableAccessedItems[io.name] = *io.storableAccessedItem
+			}
+		case opFlushStorable:
+			s.flushStorableAccessTimes()
+		}
+
+		if printChanLen {
+			fmt.Println("itemsChan: ", len(s.itemsChan))
+			printChanLen = false
+		}
+
+		if time.Now().Sub(lastRun) < sleepTime {
+			continue
+		}
+
+		printChanLen = true
+
 		s.logger.Info(s.stats())
 		purgeable := purgeableItems{}
-		s.itemsLock.Lock()
 		if s.sizeBytes > s.maxSizeBytes {
 			purgeable = s.purgeableItemNames(s.sizeBytes - s.maxSizeBytes)
 		}
-		s.itemsLock.Unlock()
 		if len(purgeable.withAccessTimes) == 0 && len(purgeable.withoutAccessTimes) == 0 {
-			time.Sleep(sleepTime)
+			lastRun = time.Now()
 			continue
 		}
 
@@ -541,7 +577,6 @@ func (s *storage) runSizeLimiter() {
 		rmFiles(&purgeable.withoutAccessTimes, &removedWithoutAccessTimes)
 		rmFiles(&purgeable.withAccessTimes, &removedWithAccessTimes)
 
-		s.itemsLock.Lock()
 		for _, n := range removedWithAccessTimes {
 			sizeKb := s.withAccessTime[n].sizeKilobytes
 			delete(s.withAccessTime, n)
@@ -552,11 +587,10 @@ func (s *storage) runSizeLimiter() {
 			delete(s.withoutAccessTime, n)
 			s.sizeBytes -= int64(sizeKb * 1024)
 		}
-		s.itemsLock.Unlock()
 
 		s.logger.Infof("Removed %v / %v items to release at least %v MB",
 			len(removedWithoutAccessTimes)+len(removedWithAccessTimes), len(purgeable.withoutAccessTimes)+len(purgeable.withAccessTimes), purgeable.size/1024/1024)
-		time.Sleep(sleepTime)
+		lastRun = time.Now()
 	}
 }
 
@@ -612,7 +646,8 @@ func (s *storage) signalListener(c chan os.Signal) {
 		case syscall.SIGTERM, syscall.SIGABRT, syscall.SIGINT:
 			s.logger.Infof("Received %v, running exit handlers", sig)
 			if !util.EnvBool(os.Getenv("ATIME_DISABLE")) {
-				s.flushStorableAccessTimes()
+				s.itemsChan <- &itemWithOp{op: opFlushStorable}
+				time.Sleep(time.Second)
 			}
 			os.Exit(0)
 		}
@@ -620,9 +655,6 @@ func (s *storage) signalListener(c chan os.Signal) {
 }
 
 func (s *storage) readStorableAccessTimes() (withAccessTime map[itemName]accessedItem, err error) {
-	s.storableAccessedItemsLock.Lock()
-	defer s.storableAccessedItemsLock.Unlock()
-
 	p := s.atimesPath
 	f, err := os.Open(p)
 	if err != nil {
@@ -674,15 +706,11 @@ func (s *storage) readStorableAccessTimes() (withAccessTime map[itemName]accesse
 }
 
 func (s *storage) resetStorableAccessTimes() {
-	s.storableAccessedItemsLock.Lock()
 	s.storableAccessedItems = make(map[itemName]storableAccessedItem, 0)
-	s.storableAccessedItemsLock.Unlock()
 }
 
 func (s *storage) flushStorableAccessTimes() {
-	s.storableAccessedItemsLock.Lock()
 	defer s.resetStorableAccessTimes()
-	defer s.storableAccessedItemsLock.Unlock()
 
 	if len(s.storableAccessedItems) == 0 {
 		return
@@ -831,16 +859,9 @@ func (s *storage) flushStorableAccessTimes() {
 
 func (s *storage) setAccessTime(key Key, size int64) {
 	name := itemName(key.FsName())
-	storableItem := storableAccessedItem{time.Now().Unix(), uint32(size / 1024)}
-	s.storableAccessedItemsLock.Lock()
-	s.storableAccessedItems[name] = storableItem
-	s.storableAccessedItemsLock.Unlock()
-
 	item := accessedItem{accessTime(time.Now().Unix() - s.startedAt), uint32(size / 1024)}
-	s.itemsLock.Lock()
-	s.withAccessTime[name] = item
-	delete(s.withoutAccessTime, name)
-	s.itemsLock.Unlock()
+	storableItem := storableAccessedItem{time.Now().Unix(), uint32(size / 1024)}
+	s.itemsChan <- &itemWithOp{op: opAccessTime, name: name, accessedItem: &item, storableAccessedItem: &storableItem}
 }
 
 type storageWriter struct {
