@@ -213,7 +213,7 @@ func NewDiskStorage(id string, path string, size int64, logger *apexlog.Logger, 
 	}
 
 	go s.runSizeLimiter()
-	disablePersistentAtime := util.EnvBool(os.Getenv("ATIME_DISABLE"))
+	disablePersistentAtime := util.EnvBool("ATIME_DISABLE")
 	if !disablePersistentAtime {
 		sigChan := make(chan os.Signal, 1)
 		signal.Notify(sigChan, syscall.SIGINT, syscall.SIGTERM, syscall.SIGABRT)
@@ -645,7 +645,7 @@ func (s *storage) signalListener(c chan os.Signal) {
 		switch sig {
 		case syscall.SIGTERM, syscall.SIGABRT, syscall.SIGINT:
 			s.logger.Infof("Received %v, running exit handlers", sig)
-			if !util.EnvBool(os.Getenv("ATIME_DISABLE")) {
+			if !util.EnvBool("ATIME_DISABLE") {
 				s.itemsChan <- &itemWithOp{op: opFlushStorable}
 				time.Sleep(time.Second)
 			}
