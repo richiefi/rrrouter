@@ -1,11 +1,13 @@
 package caching
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/c2h5oh/datasize"
 	"github.com/getsentry/sentry-go"
+	mets "github.com/richiefi/rrrouter/metrics"
 	"github.com/richiefi/rrrouter/util"
 	"github.com/richiefi/rrrouter/yamlconfig"
 	"io"
@@ -20,7 +22,7 @@ import (
 )
 
 type Cache interface {
-	Get(string, int, bool, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
+	Get(context.Context, string, int, bool, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
 	Invalidate(Key, *apexlog.Logger)
@@ -161,9 +163,10 @@ func notFoundPreferredKey(keys []Key) Key {
 	return keys[0]
 }
 
-func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
+func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
+	defer mets.FromContext(ctx).MarkTime(time.Now())
 	s := c.storageWithCacheId(cacheId)
-	rc, sm, k, err := (*s).Get(keys)
+	rc, sm, k, err := (*s).Get(ctx, keys)
 	if err != nil {
 		if !os.IsNotExist(err) {
 			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching Key %v\n", (*s).Id(), k.FsName()))
@@ -171,7 +174,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 		}
 		k = notFoundPreferredKey(keys)
 		//logctx.Debugf("Miss: %v // %v", k, k.FsName())
-		cr := c.getReaderOrWriter(cacheId, k, w, false, false, logctx)
+		cr := c.getReaderOrWriter(ctx, cacheId, k, w, false, false, logctx)
 		return cr, k, nil
 	}
 
@@ -242,7 +245,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 			logctx.WithError(err).Errorf("Could not close an optimistically opened fd, which then had to be revalidated")
 		}
 
-		cr := c.getReaderOrWriter(cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
+		cr := c.getReaderOrWriter(ctx, cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
 		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}
 		cr.Age = age
 		return cr, k, nil
@@ -251,7 +254,7 @@ func (c *cache) Get(cacheId string, forceRevalidate int, skipRevalidate bool, ke
 	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
 }
 
-func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
+func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
 	rk := k.FsName()
 	c.waitingReadersLock.Lock()
 	//c.logger.Debugf("Checking if %v exists", rk)
@@ -260,7 +263,7 @@ func (c *cache) getReaderOrWriter(cacheId string, k Key, w http.ResponseWriter, 
 		if isRevalidating && staleWhileRevalidate {
 			c.waitingReadersLock.Unlock()
 			c.logger.Debugf("Released lock for stale reader attempt: %v", rk)
-			cr, _, _ := c.Get(cacheId, 0, true, []Key{k}, w, logctx)
+			cr, _, _ := c.Get(ctx, cacheId, 0, true, []Key{k}, w, logctx)
 			return cr
 		}
 		defer c.waitingReadersLock.Unlock()

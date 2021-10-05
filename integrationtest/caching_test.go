@@ -3,6 +3,7 @@
 package integrationtest
 
 import (
+	"context"
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/c2h5oh/datasize"
@@ -1863,7 +1864,7 @@ type testCache struct {
 	getWriter   func(cacheId string, k caching.Key, revalidate bool) caching.CacheWriter
 }
 
-func (c *testCache) Get(s string, ri int, skipRevalidate bool, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
+func (c *testCache) Get(ctx context.Context, s string, ri int, skipRevalidate bool, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 	if s != c.cacheId {
 		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, keys[0], nil
 	}
@@ -1892,8 +1893,8 @@ func (ts *testStorage) GetWriter(k caching.Key, r bool, c *chan caching.KeyInfo)
 	return ts.s.GetWriter(k, r, c)
 }
 
-func (ts *testStorage) Get(keys []caching.Key) (*os.File, caching.StorageMetadata, caching.Key, error) {
-	w, sm, key, err := ts.s.Get(keys)
+func (ts *testStorage) Get(ctx context.Context, keys []caching.Key) (*os.File, caching.StorageMetadata, caching.Key, error) {
+	w, sm, key, err := ts.s.Get(ctx, keys)
 	ts.queriedKeys(key)
 	return w, sm, key, err
 }

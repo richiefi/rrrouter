@@ -3,11 +3,13 @@ package caching
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"encoding/json"
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/pkg/errors"
 	"github.com/pkg/xattr"
+	mets "github.com/richiefi/rrrouter/metrics"
 	"github.com/richiefi/rrrouter/util"
 	"io"
 	"math/rand"
@@ -25,7 +27,7 @@ import (
 
 type Storage interface {
 	GetWriter(Key, bool, *chan KeyInfo) StorageWriter
-	Get([]Key) (*os.File, StorageMetadata, Key, error)
+	Get(context.Context, []Key) (*os.File, StorageMetadata, Key, error)
 	Id() string
 	Update(cfg StorageConfiguration)
 	SetIsReplaced()
@@ -337,7 +339,8 @@ const (
 	metadataXAttrName = "user.rrrouter"
 )
 
-func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
+func (s *storage) Get(ctx context.Context, keys []Key) (*os.File, StorageMetadata, Key, error) {
+	defer mets.FromContext(ctx).MarkTime(time.Now())
 	if len(keys) == 0 {
 		return nil, StorageMetadata{}, Key{}, nil
 	}
@@ -353,7 +356,7 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 			return nil, StorageMetadata{}, key, err
 		}
 
-		sm, err := getStorageMetadata(f, metadataXAttrName)
+		sm, err := getStorageMetadata(ctx, f, metadataXAttrName)
 		if err != nil {
 			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
 			err := os.Remove(fp)
@@ -372,7 +375,9 @@ func (s *storage) Get(keys []Key) (*os.File, StorageMetadata, Key, error) {
 	return nil, StorageMetadata{}, keys[0], os.ErrNotExist
 }
 
-func getStorageMetadata(f *os.File, attrName string) (StorageMetadata, error) {
+func getStorageMetadata(ctx context.Context, f *os.File, attrName string) (StorageMetadata, error) {
+	defer mets.FromContext(ctx).MarkTime(time.Now())
+
 	xattrb, err := xattr.FGet(f, attrName)
 	if err != nil {
 		return StorageMetadata{}, err
@@ -987,7 +992,7 @@ func (sw *storageWriter) Close() error {
 				sw.Delete()
 				return err
 			}
-			sm, err := getStorageMetadata(fd, metadataXAttrName)
+			sm, err := getStorageMetadata(nil, fd, metadataXAttrName)
 			if err != nil {
 				sw.Delete()
 				return err

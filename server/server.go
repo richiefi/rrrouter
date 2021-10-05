@@ -1,6 +1,7 @@
 package server
 
 import (
+	"context"
 	"crypto/subtle"
 	"encoding/json"
 	"errors"
@@ -9,6 +10,7 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/richiefi/rrrouter/caching"
 	"github.com/richiefi/rrrouter/config"
+	mets "github.com/richiefi/rrrouter/metrics"
 	"github.com/richiefi/rrrouter/proxy"
 	"github.com/richiefi/rrrouter/usererror"
 	"github.com/richiefi/rrrouter/util"
@@ -61,7 +63,11 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
+		m := mets.NewMetrics(or.URL.RequestURI(), nil, nil)
+		ctx := context.WithValue(or.Context(), "metrics", m)
+		defer m.ReportAndClose(time.Now())
 		defer sentry.Recover()
+
 		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors, bool)
 		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
@@ -90,7 +96,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			}
 
 			keys := caching.KeysFromRequest(r)
-			cr, key, err := cache.Get(rf.CacheId, rf.ForceRevalidate, skipRevalidate, keys, *w, logger)
+			cr, key, err := cache.Get(ctx, rf.CacheId, rf.ForceRevalidate, skipRevalidate, keys, *w, logger)
 			if err != nil {
 				cache.Invalidate(key, logger)
 				writeError(*w, err)
@@ -123,7 +129,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					for i := 0; i < len(ts); i++ {
 						select {
 						case waitedKeyInfo := <-*cr.WaitChan:
-							cr, _, err = cache.Get(rf.CacheId, rf.ForceRevalidate, waitedKeyInfo.CanUseStale, []caching.Key{waitedKeyInfo.Key}, *w, logger)
+							cr, _, err = cache.Get(ctx, rf.CacheId, rf.ForceRevalidate, waitedKeyInfo.CanUseStale, []caching.Key{waitedKeyInfo.Key}, *w, logger)
 							if err != nil {
 								writeError(*w, err)
 								return
