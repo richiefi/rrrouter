@@ -4,6 +4,7 @@ import (
 	"context"
 	"fmt"
 	"github.com/richiefi/rrrouter/util"
+	"math/rand"
 	"runtime"
 	"sort"
 	"sync"
@@ -26,7 +27,9 @@ import (
 type Metrics interface {
 	MarkTime(time.Time) Metrics
 	MarkTimeWith(string) Metrics
+	Mark(interface{}, interface{}) Metrics
 	ReportAndClose(time.Time)
+	WithSampleRate(float64) Metrics
 }
 
 func NewMetrics(ctx interface{}, senders *[]Sender, timeout *time.Duration) Metrics {
@@ -36,6 +39,8 @@ func NewMetrics(ctx interface{}, senders *[]Sender, timeout *time.Duration) Metr
 	now := time.Now()
 	m.times = append(m.times, timeFunc{now, now, callerName(2), "", false})
 	m.timesL = sync.Mutex{}
+	m.values = make([]cv, 0)
+	m.valuesL = sync.Mutex{}
 	m.rc = make(chan bool, 1)
 	m.timeout = timeout
 	if senders == nil {
@@ -54,13 +59,18 @@ type metrics struct {
 	ctx     interface{}
 	times   []timeFunc
 	timesL  sync.Mutex
+	values  []cv
+	valuesL sync.Mutex
 	rc      chan bool
+	closed  bool
 	senders *[]Sender
 	timeout *time.Duration
+	sr      *float64
 }
 
 type Sender interface {
-	Send(ctx *interface{}, ts *[]timeFunc)
+	SendTimings(*interface{}, *[]timeFunc)
+	SendValues(*interface{}, *[]cv)
 }
 
 type timeFunc struct {
@@ -69,6 +79,12 @@ type timeFunc struct {
 	f  string
 	w  string
 	to bool
+}
+
+type cv struct {
+	ctx   interface{}
+	value interface{}
+	ts    time.Time
 }
 
 func (m *metrics) MarkTime(b time.Time) Metrics {
@@ -105,6 +121,19 @@ func (m *metrics) markTimeout() {
 	m.markTime(4, now, now, "", true)
 }
 
+func (m *metrics) Mark(ctx interface{}, val interface{}) Metrics {
+	m.mark(ctx, val, time.Now())
+	return m
+}
+
+func (m *metrics) mark(ctx interface{}, val interface{}, ts time.Time) {
+	m.valuesL.Lock()
+	defer m.valuesL.Unlock()
+	m.values = append(m.values, cv{ctx, val, ts})
+	m.closed = true
+	m.rc <- true
+}
+
 func FromContext(ctx context.Context) Metrics {
 	if ctx == nil {
 		return &dummyMetrics{}
@@ -120,7 +149,31 @@ func FromContext(ctx context.Context) Metrics {
 
 func (m *metrics) ReportAndClose(b time.Time) {
 	m.markTime(4, b, time.Now(), "", false)
+	m.closed = true
 	m.rc <- true
+}
+
+func (m *metrics) WithSampleRate(f float64) Metrics {
+	m.sr = &f
+	return m
+}
+
+var r *rand.Rand
+
+func (m *metrics) doSendSample() bool {
+	if m.sr == nil {
+		return true
+	}
+	sr := *m.sr
+	if sr == 1 {
+		return true
+	} else if sr == 0 {
+		return false
+	}
+	if r == nil {
+		r = rand.New(rand.NewSource(time.Now().Unix()))
+	}
+	return r.Float64() < sr
 }
 
 func (m *metrics) waitForReport() {
@@ -130,15 +183,32 @@ func (m *metrics) waitForReport() {
 	} else {
 		to = time.Second * 60
 	}
-	select {
-	case <-m.rc:
-		break
-	case <-time.After(to):
-		m.markTimeout()
-	}
-	if m.senders != nil {
-		for _, s := range *m.senders {
-			s.Send(&m.ctx, &m.times)
+	for {
+		select {
+		case <-m.rc:
+			break
+		case <-time.After(to):
+			m.markTimeout()
+		}
+		doSend := m.doSendSample()
+		if m.senders != nil {
+			for _, s := range *m.senders {
+				m.timesL.Lock()
+				if doSend {
+					s.SendTimings(&m.ctx, &m.times)
+				}
+				m.times = make([]timeFunc, 0)
+				m.timesL.Unlock()
+				m.valuesL.Lock()
+				if doSend {
+					s.SendValues(&m.ctx, &m.values)
+				}
+				m.values = make([]cv, 0)
+				m.valuesL.Unlock()
+			}
+		}
+		if m.closed {
+			return
 		}
 	}
 }
@@ -161,7 +231,7 @@ func (a byB) Len() int           { return len(a) }
 func (a byB) Swap(i, j int)      { a[i], a[j] = a[j], a[i] }
 func (a byB) Less(i, j int) bool { return a[i].b.Sub(a[j].b).Nanoseconds() < 0 }
 
-func (ps *printSender) Send(ctx *interface{}, ts *[]timeFunc) {
+func (ps *printSender) SendTimings(ctx *interface{}, ts *[]timeFunc) {
 	if ts == nil || len(*ts) < 2 {
 		return
 	}
@@ -190,6 +260,15 @@ func (ps *printSender) Send(ctx *interface{}, ts *[]timeFunc) {
 	fmt.Println(s)
 }
 
+func (ps *printSender) SendValues(ctx *interface{}, vals *[]cv) {
+	if *vals == nil {
+		return
+	}
+	for _, cv := range *vals {
+		fmt.Printf("%v metrics: %v: %v\n", cv.ts, cv.ctx, cv.value)
+	}
+}
+
 //
 
 type dummyMetrics struct {
@@ -203,5 +282,13 @@ func (m *dummyMetrics) MarkTimeWith(s string) Metrics {
 	return m
 }
 
+func (m *dummyMetrics) Mark(ctx interface{}, val interface{}) Metrics {
+	return m
+}
+
 func (m *dummyMetrics) ReportAndClose(time.Time) {
+}
+
+func (m *dummyMetrics) WithSampleRate(float64) Metrics {
+	return m
 }
