@@ -744,7 +744,7 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 }
 
-func TestCache_cache_control_private_not_cached(t *testing.T) {
+func TestCache_cache_control_caching_not_allowed(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
 	timesOriginHit := 0
@@ -781,6 +781,38 @@ func TestCache_cache_control_private_not_cached(t *testing.T) {
 	body = sh.readBody(resp)
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, 2, timesOriginHit)
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
+
+	hdrs = map[string]string{"cache-control": "no-cache"}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 3, timesOriginHit)
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
+
+	hdrs = map[string]string{"cache-control": "s-maxage=0"}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 4, timesOriginHit)
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
+
+	hdrs = map[string]string{"cache-control": "max-age=0"}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 5, timesOriginHit)
+	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
+
+	hdrs = map[string]string{"cache-control": "no-store"}
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 6, timesOriginHit)
 	require.Equal(t, "uncacheable", resp.Header.Get("richie-edge-cache"))
 }
 
