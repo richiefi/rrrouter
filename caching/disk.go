@@ -540,7 +540,7 @@ func (s *storage) runSizeLimiter() {
 		}
 
 		if printChanLen {
-			fmt.Println("itemsChan: ", len(s.itemsChan))
+			go mets.NewMetrics(nil, nil, nil).WithSampleRate(1).Mark("items channel length", len(s.itemsChan))
 			printChanLen = false
 		}
 
