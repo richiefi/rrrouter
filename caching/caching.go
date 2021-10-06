@@ -685,7 +685,7 @@ type CacheControlDirectives struct {
 }
 
 func (ccd CacheControlDirectives) DoNotCache() bool {
-	return ccd.Private || ccd.NoStore || (ccd.SMaxAge != nil && *ccd.SMaxAge == 0) || (ccd.MaxAge != nil && *ccd.MaxAge == 0)
+	return ccd.NoCache || ccd.Private || ccd.NoStore || (ccd.SMaxAge != nil && *ccd.SMaxAge == 0) || (ccd.MaxAge != nil && *ccd.MaxAge == 0)
 }
 
 func (ccd CacheControlDirectives) CanStaleIfError(age int64) bool {
