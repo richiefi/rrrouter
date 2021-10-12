@@ -290,7 +290,7 @@ For best performance it's recommended to set noatime on the mounted storage. As 
 
 There's an admin endpoint, `/__SYSTEMINFO`, for checking state of the system rrrouter is running on. The endpoint requires that the `ADMIN_NAME` and `ADMIN_PASS` environment variables are set.
 
-The `/__RRROUTER/health` endpoint always returns 200 OK.
+If no caches are configured, the `/__RRROUTER/health` endpoint returns HTTP 200 and `OK` as the body. If a cache is configured and any of its storages fail a write check, the endpoint returns HTTP 503 with an error description in the body.
 
 ## Sentry logging
 
