@@ -123,7 +123,7 @@ func (c *cache) debugReaderNotifier(i int) {
 			stale := false
 			for _, ct := range cts {
 				age := time.Now().Sub(ct.time)
-				if age > time.Second*60 {
+				if age > time.Second*90 {
 					stale = true
 					c.logger.Infof("rn: %v with age %v", rk, age)
 				}
