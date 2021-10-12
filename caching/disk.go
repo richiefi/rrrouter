@@ -435,11 +435,11 @@ func (s *storage) WriteTest() (bool, error) {
 		}
 	}
 	err = fd.Close()
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		s.logger.WithError(err).Infof("Closing .healthcheck errored")
 	}
 	err = os.Remove(p)
-	if err != nil {
+	if err != nil && !os.IsNotExist(err) {
 		msg := "Removing .healthcheck errored"
 		s.logger.WithError(err).Infof(msg)
 		return false, errors.New(msg)
