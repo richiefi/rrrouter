@@ -142,6 +142,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							break
 						}
 					}
+					if cr.WaitChan != nil {
+						// ts's exhausted
+						writeError(*w, usererror.CreateError(503, "Subresource fetch timed out"))
+						return
+					}
 					if cr.Reader != nil {
 						defer cr.Reader.Close()
 					}
