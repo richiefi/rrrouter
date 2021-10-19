@@ -287,6 +287,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if reqres.Response.StatusCode == 304 {
 						err := cr.Writer.SetRevalidatedAndClose()
 						if err != nil {
+							cache.Invalidate(key, logger)
 							writeError(*w, err)
 							return
 						}
@@ -324,6 +325,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if dirs.CanStaleIfError(cr.Age) {
 								err := cr.Writer.SetRevalidateErroredAndClose(true)
 								if err != nil {
+									cache.Invalidate(key, logger)
 									writeError(*w, err)
 									return
 								}
