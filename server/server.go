@@ -80,7 +80,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				rf = *frf
 			}
 			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
-				reqres, err := router.RouteRequest(r, overrideURL, nil)
+				reqres, err := router.RouteRequest(ctx, r, overrideURL, nil)
 				if err != nil {
 					writeError(*w, err)
 					return
@@ -206,7 +206,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			case caching.NotFoundReader, caching.RevalidatingReader:
 				if cr.Reader == nil && shouldSkipIfNotCached {
-					reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
+					reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 					if err != nil {
 						writeError(*w, err)
 						return
@@ -270,7 +270,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					r.Header.Del("if-none-match")
 					r.Header.Del("if-modified-since")
 				}
-				reqres, err := router.RouteRequest(r, overrideURL, rf.Rule)
+				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 				if err != nil {
 					cache.Invalidate(key, logger)
 					writeError(*w, err)

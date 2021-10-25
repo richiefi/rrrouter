@@ -2,6 +2,8 @@ package proxy
 
 import (
 	"bytes"
+	"context"
+	"errors"
 	"io"
 	"io/ioutil"
 	"net"
@@ -35,7 +37,7 @@ type RequestResult struct {
 
 // Router is the meat of rrrouter
 type Router interface {
-	RouteRequest(*http.Request, *url.URL, *Rule) (*RequestResult, error)
+	RouteRequest(context.Context, *http.Request, *url.URL, *Rule) (*RequestResult, error)
 	GetRoutingFlavors(*http.Request) RoutingFlavors
 	SetRules(*Rules)
 }
@@ -144,14 +146,14 @@ func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.C
 	}
 }
 
-func (r *router) RouteRequest(req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
+func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
 	urlMatch, err := r.createUrlMatch(req, nil, logctx)
 	if err != nil {
 		return nil, err
 	}
-	return r.routeRequest(urlMatch, req, overrideURL, fallbackRule, logctx)
+	return r.routeRequest(ctx, urlMatch, req, overrideURL, fallbackRule, logctx)
 }
 
 func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx *apexlog.Entry) (*urlMatch, error) {
@@ -164,7 +166,7 @@ func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx 
 	return urlMatch, nil
 }
 
-func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) (*RequestResult, error) {
+func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) (*RequestResult, error) {
 	requestsResult, err := r.createOutgoingRequests(urlMatch, req, overrideURL, fallbackRule)
 	if err != nil {
 		logctx.WithError(err).Error("error creating outgoing request")
@@ -194,9 +196,9 @@ func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL
 	if requestsResult.copyRequest != nil {
 		var copyResp *http.Response
 		if requestsResult.flattenRedirects && len(requestsResult.cacheId) == 0 {
-			copyResp, _, err = r.follow(requestsResult.copyRequest, bodyData, retryRule == nil)
+			copyResp, _, err = r.follow(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
 		} else {
-			copyResp, err = r.performRequest(requestsResult.copyRequest, bodyData, retryRule == nil)
+			copyResp, err = r.performRequest(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
 		}
 		if err != nil {
 			logctx.WithError(err).Error("Error performing copy request")
@@ -210,9 +212,9 @@ func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL
 	var redirectedURL *url.URL
 	if requestsResult.mainRequest != nil {
 		if requestsResult.flattenRedirects && len(requestsResult.cacheId) == 0 {
-			mainResp, redirectedURL, err = r.follow(requestsResult.mainRequest, bodyData, retryRule == nil)
+			mainResp, redirectedURL, err = r.follow(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
 		} else {
-			mainResp, err = r.performRequest(requestsResult.mainRequest, bodyData, retryRule == nil)
+			mainResp, err = r.performRequest(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
 			if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
 				redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
 				if err != nil {
@@ -230,7 +232,7 @@ func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL
 			if err != nil {
 				return nil, err
 			}
-			return r.routeRequest(urlMatch, req, nil, nil, logctx)
+			return r.routeRequest(ctx, urlMatch, req, nil, nil, logctx)
 		} else if err != nil {
 			logctx.WithError(err).Error("Error performing main request")
 			return nil, err
@@ -254,12 +256,12 @@ func (r *router) routeRequest(urlMatch *urlMatch, req *http.Request, overrideURL
 	}, nil
 }
 
-func (r *router) follow(req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, *url.URL, error) {
+func (r *router) follow(ctx context.Context, req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, *url.URL, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.follow"})
 
 	var redirectedURL *url.URL
 	for redirections := 0; redirections < 15; redirections += 1 {
-		resp, err := r.performRequest(req, requestData, retryAllowed)
+		resp, err := r.performRequest(ctx, req, requestData, retryAllowed)
 		if err != nil {
 			return nil, nil, err
 		}
@@ -369,7 +371,7 @@ func setContentLength(req *http.Request) error {
 	return nil
 }
 
-func (r *router) performRequest(req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, error) {
+func (r *router) performRequest(ctx context.Context, req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.performRequest"})
 	logctx.Debug("Enter")
 
@@ -394,6 +396,9 @@ func (r *router) performRequest(req *http.Request, requestData []byte, retryAllo
 			resp, err = r.requestPerformer.Do(req)
 			if err == nil {
 				break
+			}
+			if errors.Is(err, context.Canceled) {
+				return nil, err
 			}
 
 			// Retry needed.
