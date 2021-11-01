@@ -79,8 +79,9 @@ type cache struct {
 }
 
 type chanWithTime struct {
-	ch   *chan KeyInfo
-	time time.Time
+	ch          *chan KeyInfo
+	originalUrl string
+	time        time.Time
 }
 
 func (c *cache) readerNotifier() {
@@ -125,12 +126,16 @@ func (c *cache) debugReaderNotifier(i int) {
 				age := time.Now().Sub(ct.time)
 				if age > time.Second*90 {
 					stale = true
-					c.logger.Infof("rn: %v with age %v", rk, age)
+					c.logger.Infof("rn: %v with age %v, url: %v", rk, age, ct.originalUrl)
 				}
 				ages = append(ages, age)
 			}
 			if stale {
-				sentry.CaptureMessage(fmt.Sprintf("rn: stale: %v", rk))
+				url := ""
+				if len(cts) > 0 {
+					url = cts[0].originalUrl
+				}
+				sentry.CaptureMessage(fmt.Sprintf("rn: stale: %v, url: %v", rk, url))
 			}
 
 		}
@@ -269,8 +274,9 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 		defer c.waitingReadersLock.Unlock()
 		wc := make(chan KeyInfo, 1)
 		ct := chanWithTime{
-			ch:   &wc,
-			time: time.Now(),
+			ch:          &wc,
+			originalUrl: k.host + k.path,
+			time:        time.Now(),
 		}
 		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
 		//c.logger.Debugf("Locking for reader: %v", rk)
