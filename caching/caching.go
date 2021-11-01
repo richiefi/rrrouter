@@ -120,7 +120,11 @@ func (c *cache) debugReaderNotifier(i int) {
 			continue
 		}
 		for rk, cts := range c.waitingReaders {
-			c.logger.Infof("rn: %v has %v waiting", rk, len(cts))
+			url := ""
+			if len(cts) > 0 {
+				url = cts[0].originalUrl
+			}
+			c.logger.Infof("rn: %v has %v waiting, url: %v", rk, len(cts), url)
 			stale := false
 			for _, ct := range cts {
 				age := time.Now().Sub(ct.time)
@@ -131,10 +135,6 @@ func (c *cache) debugReaderNotifier(i int) {
 				ages = append(ages, age)
 			}
 			if stale {
-				url := ""
-				if len(cts) > 0 {
-					url = cts[0].originalUrl
-				}
 				sentry.CaptureMessage(fmt.Sprintf("rn: stale: %v, url: %v", rk, url))
 			}
 
