@@ -219,6 +219,7 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 				redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
 				if err != nil {
 					logctx.WithError(err).Errorf("Error parsing redirection")
+					mainResp.Body.Close()
 					return nil, err
 				}
 			}
@@ -227,6 +228,9 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 			overrideRules := &Rules{
 				rules:  []*Rule{requestsResult.retryRule},
 				logger: nil,
+			}
+			if mainResp != nil {
+				defer mainResp.Body.Close()
 			}
 			urlMatch, err := r.createUrlMatch(req, overrideRules, logctx)
 			if err != nil {

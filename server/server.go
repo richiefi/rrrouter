@@ -276,6 +276,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					writeError(*w, err)
 					return
 				}
+				defer reqres.Response.Body.Close()
 				rf = reqres.FinalRoutingFlavors
 				for hname, hvals := range rf.ResponseHeaders {
 					for _, hval := range hvals {
