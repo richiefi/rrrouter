@@ -374,7 +374,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 					writeBodyFunc = makeCachingWriteBody(rRange)
 					writer = cr.Writer
-					errCleanup = func() { _ = cr.Writer.Delete(); cache.Invalidate(key, logger) }
+					errCleanup = func() {
+						logger.Infof("errCleanup: %v / %v", key, key.FsName())
+						_ = cr.Writer.Delete()
+						cache.Invalidate(key, logger)
+					}
 				}
 
 				requestHandler(reqres, logger, conf)(writer, r, *alwaysInclude, statusOverride, writeBodyFunc, true, errCleanup)

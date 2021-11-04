@@ -93,15 +93,18 @@ func (c *cache) readerNotifier() {
 		c.logger.Debugf("readerNotifier waiting for Key")
 		ki := <-*c.closeNotifier
 		k := ki.Key
-		c.logger.Debugf("readerNotifier got Key: %v", k)
 		rk := k.FsName()
+		c.logger.Infof("readerNotifier got Key: %v / %v", k, rk)
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
+			c.logger.Infof("readerNotifier notifying %v with: %v / %v", len(readers), k, rk)
 			for i, ct := range readers {
 				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
 				*ct.ch <- ki
 			}
 			delete(c.waitingReaders, rk)
+		} else {
+			c.logger.Infof("readerNotifier nothing to notify: %v / %v", k, rk)
 		}
 		c.waitingReadersLock.Unlock()
 	}
@@ -335,9 +338,11 @@ func (c *cache) SetStorageConfigs(cfgs []StorageConfiguration) {
 
 func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
 	if c.closeNotifier == nil {
+		l.Infof("cache.Invalidate: c.closeNotifier is nil")
 		return
 	}
 
+	l.Infof("cache.Invalidate: %v / %v", k, k.FsName())
 	*c.closeNotifier <- KeyInfo{Key: k}
 }
 
