@@ -98,7 +98,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			keys := caching.KeysFromRequest(r)
 			cr, key, err := cache.Get(ctx, rf.CacheId, rf.ForceRevalidate, skipRevalidate, keys, *w, logger)
 			if err != nil {
-				cache.Invalidate(key, logger)
+				cache.Finish(key, logger)
 				writeError(*w, err)
 				return
 			}
@@ -160,7 +160,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
-						cache.Invalidate(key, logger)
+						cache.Finish(key, logger)
 						writeError(*w, err)
 						return
 					}
@@ -199,7 +199,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				fatal, err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
 				if err != nil {
 					if fatal {
-						cache.Invalidate(key, logger)
+						cache.Finish(key, logger)
 					}
 					writeError(*w, err)
 				}
@@ -272,7 +272,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 				if err != nil {
-					cache.Invalidate(key, logger)
+					cache.Finish(key, logger)
 					writeError(*w, err)
 					return
 				}
@@ -288,7 +288,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if reqres.Response.StatusCode == 304 {
 						err := cr.Writer.SetRevalidatedAndClose()
 						if err != nil {
-							cache.Invalidate(key, logger)
+							cache.Finish(key, logger)
 							writeError(*w, err)
 							return
 						}
@@ -302,7 +302,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					var s int
 					s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
 					if s >= 400 {
-						cache.Invalidate(key, logger)
+						cache.Finish(key, logger)
 						(*w).WriteHeader(s)
 						return
 					}
@@ -311,12 +311,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
 				if dirs.DoNotCache() {
 					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
-					cache.Invalidate(key, logger)
+					cache.Finish(key, logger)
 					writeBodyFunc = writeBody
 					writer = *w
 				} else if reqres.RedirectedURL == nil && util.IsRedirect(reqres.Response.StatusCode) {
 					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
-					cache.Invalidate(key, logger)
+					cache.Finish(key, logger)
 					writeBodyFunc = writeBody
 					writer = *w
 				} else {
@@ -326,7 +326,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if dirs.CanStaleIfError(cr.Age) {
 								err := cr.Writer.SetRevalidateErroredAndClose(true)
 								if err != nil {
-									cache.Invalidate(key, logger)
+									cache.Finish(key, logger)
 									writeError(*w, err)
 									return
 								}
@@ -343,7 +343,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if reqres.RedirectedURL != nil {
 						if urlEquals(reqres.RedirectedURL, r.URL) {
 							err = usererror.CreateError(508, "Loop detected")
-							cache.Invalidate(key, logger)
+							cache.Finish(key, logger)
 							writeError(*w, err)
 							return
 						}
@@ -365,7 +365,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if k.HasFullOrigin() {
 								err = cr.Writer.ChangeKey(k)
 								if err != nil {
-									cache.Invalidate(key, logger)
+									cache.Finish(key, logger)
 									writeError(*w, err)
 									return
 								}
@@ -377,7 +377,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					errCleanup = func() {
 						logger.Infof("errCleanup: %v / %v", key, key.FsName())
 						_ = cr.Writer.Delete()
-						cache.Invalidate(key, logger)
+						cache.Finish(key, logger)
 					}
 				}
 

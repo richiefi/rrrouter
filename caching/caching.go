@@ -25,7 +25,7 @@ type Cache interface {
 	Get(context.Context, string, int, bool, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
-	Invalidate(Key, *apexlog.Logger)
+	Finish(Key, *apexlog.Logger)
 	HealthCheck() error
 }
 
@@ -94,17 +94,17 @@ func (c *cache) readerNotifier() {
 		ki := <-*c.closeNotifier
 		k := ki.Key
 		rk := k.FsName()
-		c.logger.Infof("readerNotifier got Key: %v / %v", k, rk)
+		c.logger.Infof("readerNotifier got Key: %v / %v", k.host+k.path, rk)
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
-			c.logger.Infof("readerNotifier notifying %v with: %v / %v", len(readers), k, rk)
+			c.logger.Infof("readerNotifier notifying %v with: %v / %v", len(readers), k.host+k.path, rk)
 			for i, ct := range readers {
 				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
 				*ct.ch <- ki
 			}
 			delete(c.waitingReaders, rk)
 		} else {
-			c.logger.Infof("readerNotifier nothing to notify: %v / %v", k, rk)
+			c.logger.Infof("readerNotifier nothing to notify: %v / %v", k.host+k.path, rk)
 		}
 		c.waitingReadersLock.Unlock()
 	}
@@ -336,13 +336,13 @@ func (c *cache) SetStorageConfigs(cfgs []StorageConfiguration) {
 	c.storages = storages
 }
 
-func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
+func (c *cache) Finish(k Key, l *apexlog.Logger) {
 	if c.closeNotifier == nil {
-		l.Infof("cache.Invalidate: c.closeNotifier is nil")
+		l.Infof("cache.Finish: c.closeNotifier is nil")
 		return
 	}
 
-	l.Infof("cache.Invalidate: %v / %v", k, k.FsName())
+	l.Infof("cache.Finish: %v / %v. %p", k.host+k.path, k.FsName(), *c.closeNotifier)
 	*c.closeNotifier <- KeyInfo{Key: k}
 }
 
