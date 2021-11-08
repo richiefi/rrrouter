@@ -253,6 +253,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				var writeBodyFunc BodyWriter
 				var writer http.ResponseWriter
 				var errCleanup func()
+				defer cache.Finish(key, logger)
 
 				if rRange != nil {
 					r.Header.Del("range")
