@@ -273,7 +273,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 				if err != nil {
-					cache.Finish(key, logger)
 					writeError(*w, err)
 					return
 				}
@@ -289,7 +288,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if reqres.Response.StatusCode == 304 {
 						err := cr.Writer.SetRevalidatedAndClose()
 						if err != nil {
-							cache.Finish(key, logger)
 							writeError(*w, err)
 							return
 						}
@@ -303,7 +301,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					var s int
 					s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
 					if s >= 400 {
-						cache.Finish(key, logger)
 						(*w).WriteHeader(s)
 						return
 					}
@@ -327,7 +324,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if dirs.CanStaleIfError(cr.Age) {
 								err := cr.Writer.SetRevalidateErroredAndClose(true)
 								if err != nil {
-									cache.Finish(key, logger)
 									writeError(*w, err)
 									return
 								}
@@ -344,7 +340,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if reqres.RedirectedURL != nil {
 						if urlEquals(reqres.RedirectedURL, r.URL) {
 							err = usererror.CreateError(508, "Loop detected")
-							cache.Finish(key, logger)
 							writeError(*w, err)
 							return
 						}
@@ -366,7 +361,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if k.HasFullOrigin() {
 								err = cr.Writer.ChangeKey(k)
 								if err != nil {
-									cache.Finish(key, logger)
 									writeError(*w, err)
 									return
 								}
@@ -378,7 +372,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					errCleanup = func() {
 						logger.Infof("errCleanup: %v / %v", key, key.FsName())
 						_ = cr.Writer.Delete()
-						cache.Finish(key, logger)
 					}
 				}
 
