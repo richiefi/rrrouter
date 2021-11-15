@@ -90,21 +90,21 @@ func (c *cache) readerNotifier() {
 	}
 
 	for {
-		c.logger.Debugf("readerNotifier waiting for Key")
+		c.logger.Debugf("readerNotifier (%p) waiting for Key", c.closeNotifier)
 		ki := <-*c.closeNotifier
 		k := ki.Key
 		rk := k.FsName()
-		c.logger.Infof("readerNotifier got Key: %v / %v", k.host+k.path, rk)
+		c.logger.Debugf("readerNotifier (%p) got Key: %v / %v", c.closeNotifier, k.host+k.path, rk)
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
-			c.logger.Infof("readerNotifier notifying %v with: %v / %v", len(readers), k.host+k.path, rk)
+			c.logger.Debugf("readerNotifier (%p) notifying %v (%p) with: %v / %v", c.closeNotifier, len(readers), &c.waitingReaders, k.host+k.path, rk)
 			for i, ct := range readers {
-				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
+				c.logger.Debugf("readerNotifier notifying %v, ch (%p)", i, ct.ch)
 				*ct.ch <- ki
 			}
 			delete(c.waitingReaders, rk)
 		} else {
-			c.logger.Infof("readerNotifier nothing to notify: %v / %v", k.host+k.path, rk)
+			c.logger.Debugf("readerNotifier (%p) nothing to notify: %v / %v", c.closeNotifier, k.host+k.path, rk)
 		}
 		c.waitingReadersLock.Unlock()
 	}
@@ -282,7 +282,7 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 			time:        time.Now(),
 		}
 		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
-		//c.logger.Debugf("Locking for reader: %v", rk)
+		c.logger.Debugf("Locking for reader %v, ch (%p)", rk, &wc)
 		if isRevalidating {
 			kind = RevalidatingReader
 		} else {
@@ -342,7 +342,7 @@ func (c *cache) Finish(k Key, l *apexlog.Logger) {
 		return
 	}
 
-	l.Infof("cache.Finish: %v / %v. %p", k.host+k.path, k.FsName(), *c.closeNotifier)
+	l.Debugf("cache.Finish: %v / %v. %p", k.host+k.path, k.FsName(), c.closeNotifier)
 	*c.closeNotifier <- KeyInfo{Key: k}
 }
 
