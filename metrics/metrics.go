@@ -51,6 +51,7 @@ func NewMetrics(ctx interface{}, senders *[]Sender, timeout *time.Duration) Metr
 		}
 	}
 	m.senders = senders
+	m.closeL = sync.Mutex{}
 	go m.waitForReport()
 	return &m
 }
@@ -63,6 +64,7 @@ type metrics struct {
 	valuesL sync.Mutex
 	rc      chan bool
 	closed  bool
+	closeL  sync.Mutex
 	senders *[]Sender
 	timeout *time.Duration
 	sr      *float64
@@ -130,7 +132,9 @@ func (m *metrics) mark(ctx interface{}, val interface{}, ts time.Time) {
 	m.valuesL.Lock()
 	defer m.valuesL.Unlock()
 	m.values = append(m.values, cv{ctx, val, ts})
+	m.closeL.Lock()
 	m.closed = true
+	m.closeL.Unlock()
 	m.rc <- true
 }
 
@@ -149,7 +153,9 @@ func FromContext(ctx context.Context) Metrics {
 
 func (m *metrics) ReportAndClose(b time.Time) {
 	m.markTime(4, b, time.Now(), "", false)
+	m.closeL.Lock()
 	m.closed = true
+	m.closeL.Unlock()
 	m.rc <- true
 }
 
@@ -207,9 +213,12 @@ func (m *metrics) waitForReport() {
 				m.valuesL.Unlock()
 			}
 		}
+		m.closeL.Lock()
 		if m.closed {
+			m.closeL.Unlock()
 			return
 		}
+		m.closeL.Unlock()
 	}
 }
 
