@@ -130,6 +130,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						select {
 						case waitedKeyInfo := <-*cr.WaitChan:
 							cr, _, err = cache.Get(ctx, rf.CacheId, rf.ForceRevalidate, waitedKeyInfo.CanUseStale, []caching.Key{waitedKeyInfo.Key}, *w, logger)
+							key = waitedKeyInfo.Key
 							if err != nil {
 								writeError(*w, err)
 								return
