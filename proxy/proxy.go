@@ -401,7 +401,7 @@ func (r *router) performRequest(ctx context.Context, req *http.Request, requestD
 
 	var err error
 	var resp *http.Response
-
+	req = req.WithContext(ctx)
 	if retryable(req) && retryAllowed {
 		sleepTimes := make([]time.Duration, len(r.config.RetryTimes)+1)
 		for i, rt := range r.config.RetryTimes {
