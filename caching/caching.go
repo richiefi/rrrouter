@@ -25,7 +25,7 @@ type Cache interface {
 	Get(context.Context, string, int, bool, []Key, http.ResponseWriter, *apexlog.Logger) (CacheResult, Key, error)
 	HasStorage(string) bool
 	SetStorageConfigs([]StorageConfiguration)
-	Invalidate(Key, *apexlog.Logger)
+	Finish(Key, *apexlog.Logger)
 	HealthCheck() error
 }
 
@@ -90,18 +90,21 @@ func (c *cache) readerNotifier() {
 	}
 
 	for {
-		c.logger.Debugf("readerNotifier waiting for Key")
+		c.logger.Debugf("readerNotifier (%p) waiting for Key", c.closeNotifier)
 		ki := <-*c.closeNotifier
 		k := ki.Key
-		c.logger.Debugf("readerNotifier got Key: %v", k)
 		rk := k.FsName()
+		c.logger.Debugf("readerNotifier (%p) got Key: %v / %v", c.closeNotifier, k.host+k.path, rk)
 		c.waitingReadersLock.Lock()
 		if readers, exists := c.waitingReaders[rk]; exists {
+			c.logger.Debugf("readerNotifier (%p) notifying %v (%p) with: %v / %v", c.closeNotifier, len(readers), &c.waitingReaders, k.host+k.path, rk)
 			for i, ct := range readers {
-				c.logger.Debugf("readerNotifier notifying %v %v", i, ct.ch)
+				c.logger.Debugf("readerNotifier notifying %v, ch (%p)", i, ct.ch)
 				*ct.ch <- ki
 			}
 			delete(c.waitingReaders, rk)
+		} else {
+			c.logger.Debugf("readerNotifier (%p) nothing to notify: %v / %v", c.closeNotifier, k.host+k.path, rk)
 		}
 		c.waitingReadersLock.Unlock()
 	}
@@ -279,7 +282,7 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 			time:        time.Now(),
 		}
 		c.waitingReaders[rk] = append(c.waitingReaders[rk], &ct)
-		//c.logger.Debugf("Locking for reader: %v", rk)
+		c.logger.Debugf("Locking for reader %v, ch (%p)", rk, &wc)
 		if isRevalidating {
 			kind = RevalidatingReader
 		} else {
@@ -333,11 +336,13 @@ func (c *cache) SetStorageConfigs(cfgs []StorageConfiguration) {
 	c.storages = storages
 }
 
-func (c *cache) Invalidate(k Key, l *apexlog.Logger) {
+func (c *cache) Finish(k Key, l *apexlog.Logger) {
 	if c.closeNotifier == nil {
+		l.Infof("cache.Finish: c.closeNotifier is nil")
 		return
 	}
 
+	l.Debugf("cache.Finish: %v / %v. %p", k.host+k.path, k.FsName(), c.closeNotifier)
 	*c.closeNotifier <- KeyInfo{Key: k}
 }
 

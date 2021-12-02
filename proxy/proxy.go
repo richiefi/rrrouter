@@ -146,6 +146,11 @@ func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.C
 	}
 }
 
+type rrErr struct {
+	reqres *RequestResult
+	err    error
+}
+
 func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
@@ -153,7 +158,15 @@ func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideUR
 	if err != nil {
 		return nil, err
 	}
-	return r.routeRequest(ctx, urlMatch, req, overrideURL, fallbackRule, logctx)
+
+	ch := make(chan rrErr, 1)
+	go r.routeRequest(ctx, ch, urlMatch, req, overrideURL, fallbackRule, logctx)
+	select {
+	case <-ctx.Done():
+		return nil, ctx.Err()
+	case rre := <-ch:
+		return rre.reqres, rre.err
+	}
 }
 
 func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx *apexlog.Entry) (*urlMatch, error) {
@@ -166,11 +179,12 @@ func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx 
 	return urlMatch, nil
 }
 
-func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) (*RequestResult, error) {
+func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) {
 	requestsResult, err := r.createOutgoingRequests(urlMatch, req, overrideURL, fallbackRule)
 	if err != nil {
 		logctx.WithError(err).Error("error creating outgoing request")
-		return nil, err
+		ch <- rrErr{nil, err}
+		return
 	}
 
 	twoTargets := requestsResult.copyRequest != nil && requestsResult.mainRequest != nil
@@ -184,7 +198,8 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 		bodyData, err = ioutil.ReadAll(req.Body)
 		if err != nil {
 			logctx.WithError(err).Warn("Error reading request body")
-			return nil, usererror.CreateError(http.StatusBadRequest, "Couldn't read request body")
+			ch <- rrErr{nil, usererror.CreateError(http.StatusBadRequest, "Couldn't read request body")}
+			return
 		}
 		if requestsResult.copyRequest != nil {
 			requestsResult.copyRequest.Body = newByteSliceBody(bodyData)
@@ -220,7 +235,8 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 				if err != nil {
 					logctx.WithError(err).Errorf("Error parsing redirection")
 					mainResp.Body.Close()
-					return nil, err
+					ch <- rrErr{nil, err}
+					return
 				}
 			}
 		}
@@ -234,16 +250,20 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 			}
 			urlMatch, err := r.createUrlMatch(req, overrideRules, logctx)
 			if err != nil {
-				return nil, err
+				ch <- rrErr{nil, err}
+				return
 			}
-			return r.routeRequest(ctx, urlMatch, req, nil, nil, logctx)
+			r.routeRequest(ctx, ch, urlMatch, req, nil, nil, logctx)
+			return
 		} else if err != nil {
 			logctx.WithError(err).Error("Error performing main request")
-			return nil, err
+			ch <- rrErr{nil, err}
+			return
 		}
 		logctx.Debug("Successfully performed request")
 	} else {
-		return nil, usererror.BuildError(usererror.Fields{"URL": req.URL.String()}).CreateError(http.StatusNotFound, "No destination found for request target")
+		ch <- rrErr{nil, usererror.BuildError(usererror.Fields{"URL": req.URL.String()}).CreateError(http.StatusNotFound, "No destination found for request target")}
+		return
 	}
 
 	recompression := util.Recompression{Add: util.CompressionTypeNone, Remove: util.CompressionTypeNone}
@@ -251,13 +271,13 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 		recompression = util.GetRecompression(req.Header.Get("Accept-Encoding"), mainResp.Header.Get("Content-Encoding"), mainResp.Header.Get("Content-Type"))
 	}
 
-	return &RequestResult{
+	ch <- rrErr{&RequestResult{
 		Response:            mainResp,
 		Recompression:       recompression,
 		OriginalURL:         requestsResult.mainRequest.URL,
 		RedirectedURL:       redirectedURL,
 		FinalRoutingFlavors: r.getRoutingFlavors(requestsResult.rule),
-	}, nil
+	}, nil}
 }
 
 func (r *router) follow(ctx context.Context, req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, *url.URL, error) {
@@ -381,7 +401,7 @@ func (r *router) performRequest(ctx context.Context, req *http.Request, requestD
 
 	var err error
 	var resp *http.Response
-
+	req = req.WithContext(ctx)
 	if retryable(req) && retryAllowed {
 		sleepTimes := make([]time.Duration, len(r.config.RetryTimes)+1)
 		for i, rt := range r.config.RetryTimes {
