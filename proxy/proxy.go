@@ -119,6 +119,9 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
+			Resolver: &net.Resolver{
+				PreferGo: true,
+			},
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
