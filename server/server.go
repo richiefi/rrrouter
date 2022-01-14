@@ -79,7 +79,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if len(rf.CacheId) == 0 && frf != nil {
 				rf = *frf
 			}
-			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
+			if len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 				reqres, err := router.RouteRequest(ctx, r, overrideURL, nil)
 				if err != nil {
 					writeError(*w, err)
@@ -345,6 +345,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 					} else {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
+					}
+					if shouldSkip {
+						defer cr.Writer.Delete()
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
 					}
 					alwaysInclude.Set(headerAge, "0")
 					if reqres.RedirectedURL != nil {
