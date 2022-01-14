@@ -719,7 +719,7 @@ func destinationString(u *url.URL) string {
 	}
 	u2 := *u
 	u2.Host = util.DropPort(u2.Host)
-	u2.RawQuery = ""
+	//u2.RawQuery = ""
 	return u2.String()
 }
 
