@@ -459,7 +459,7 @@ func (k Key) HasFullOrigin() bool {
 	return k.opaqueOrigin == false && len(k.storedHeaders.Get("origin")) > 0
 }
 
-var keyClientHeaders = []string{"host", "accept-encoding"}
+var keyClientHeaders = []string{"host", "accept-encoding", "authorization"}
 var HeaderRrrouterCacheStatus = "richie-edge-cache"
 
 type cacheConfig struct {
