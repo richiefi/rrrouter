@@ -300,7 +300,7 @@ func (r *router) follow(ctx context.Context, req *http.Request, requestData []by
 				return nil, nil, err
 			}
 
-			req.URL = util.RedirectedURL(req, redirectedURL)
+			req.URL = util.RedirectedURL(req, req.URL, redirectedURL)
 			req.Host = req.URL.Host
 			requestData = nil
 		} else {

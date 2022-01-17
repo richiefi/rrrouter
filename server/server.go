@@ -357,9 +357,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							writeError(*w, err)
 							return
 						}
-						redirectedUrl := util.RedirectedURL(r, reqres.RedirectedURL)
+						redirectedUrl := util.RedirectedURL(r, reqres.OriginalURL, reqres.RedirectedURL)
 						redirectedUrl.Scheme = reqres.OriginalURL.Scheme
-						redirectedUrl.Host = reqres.OriginalURL.Host
 						cr.Writer.SetRedirectedURL(redirectedUrl)
 						if rf.RestartOnRedirect {
 							rr := r.Clone(r.Context())
@@ -420,7 +419,7 @@ func requestWithRedirect(r *http.Request, location string) (*http.Request, error
 		return nil, err
 	}
 	rr := r.Clone(r.Context())
-	rr.URL = util.RedirectedURL(rr, locationUrl)
+	rr.URL = util.RedirectedURL(rr, rr.URL, locationUrl)
 	rr.Host = rr.URL.Host
 	return rr, nil
 }

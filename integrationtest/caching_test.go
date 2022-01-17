@@ -1661,7 +1661,7 @@ func TestCache_recursive_redirects_not_allowed(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
-func TestCache_restart_on_redirect_relative_redirects_use_rule_destination_host(t *testing.T) {
+func TestCache_restart_on_redirect_relative_redirects_use_destination_host(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
 	timesOriginHit := 0
