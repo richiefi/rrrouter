@@ -8,22 +8,22 @@ import (
 
 // Rule describes a single forwarding rule
 type Rule struct {
-	enabled          bool
-	scheme           string
-	host             string
-	path             string
-	wci              []int
-	dest             string
-	internal         bool
-	methods          map[string]bool
-	ruleType         ruleType
-	recompression    bool
-	hostHeader       HostHeader
-	cacheId          string
-	forceRevalidate  int
-	responseHeaders  map[string]string
-	flattenRedirects bool
-	retryRule        *Rule
+	enabled           bool
+	scheme            string
+	host              string
+	path              string
+	wci               []int
+	dest              string
+	internal          bool
+	methods           map[string]bool
+	ruleType          ruleType
+	recompression     bool
+	hostHeader        HostHeader
+	cacheId           string
+	forceRevalidate   int
+	responseHeaders   map[string]string
+	restartOnRedirect bool
+	retryRule         *Rule
 }
 
 type HostHeader struct {
@@ -42,7 +42,7 @@ const (
 
 // NewRule builds a new Rule
 func NewRule(enabled bool, scheme, host, path, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
-	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, flattenRedirects bool, retryRule *Rule) (*Rule, error) {
+	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, restartOnRedirect bool, retryRule *Rule) (*Rule, error) {
 	if len(path) == 0 {
 		return nil, errors.New("Empty path")
 	}
@@ -63,22 +63,22 @@ func NewRule(enabled bool, scheme, host, path, destination string, internal bool
 	}
 
 	rule := &Rule{
-		enabled:          enabled,
-		scheme:           scheme,
-		host:             host,
-		path:             path,
-		wci:              wci,
-		dest:             destination,
-		internal:         internal,
-		methods:          methods,
-		ruleType:         ruleType,
-		hostHeader:       hostHeader,
-		recompression:    recompression,
-		cacheId:          cacheId,
-		forceRevalidate:  forceRevalidate,
-		responseHeaders:  responseHeaders,
-		flattenRedirects: flattenRedirects,
-		retryRule:        retryRule,
+		enabled:           enabled,
+		scheme:            scheme,
+		host:              host,
+		path:              path,
+		wci:               wci,
+		dest:              destination,
+		internal:          internal,
+		methods:           methods,
+		ruleType:          ruleType,
+		hostHeader:        hostHeader,
+		recompression:     recompression,
+		cacheId:           cacheId,
+		forceRevalidate:   forceRevalidate,
+		responseHeaders:   responseHeaders,
+		restartOnRedirect: restartOnRedirect,
+		retryRule:         retryRule,
 	}
 
 	return rule, nil

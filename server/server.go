@@ -158,7 +158,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			switch cr.Kind {
 			case caching.Found:
-				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
+				if rf.RestartOnRedirect && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
 						cache.Finish(key, logger)
@@ -235,7 +235,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					return
 				}
 
-				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
+				if rf.RestartOnRedirect && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
 						writeError(*w, err)
@@ -361,7 +361,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						redirectedUrl.Scheme = reqres.OriginalURL.Scheme
 						redirectedUrl.Host = reqres.OriginalURL.Host
 						cr.Writer.SetRedirectedURL(redirectedUrl)
-						if rf.FlattenRedirects {
+						if rf.RestartOnRedirect {
 							rr := r.Clone(r.Context())
 							rr.URL = redirectedUrl
 							rr.Host = redirectedUrl.Host

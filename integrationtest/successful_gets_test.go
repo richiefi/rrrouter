@@ -933,10 +933,10 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/matches/*",
-			Destination:      fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:         false,
-			FlattenRedirects: true,
+			Path:              "/t/matches/*",
+			Destination:       fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:          false,
+			RestartOnRedirect: true,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
