@@ -221,7 +221,37 @@ func TestConfigParse_host_headers(t *testing.T) {
 	require.Equal(t, HostHeaderOverride, rules.rules[2].hostHeader.Behavior)
 	require.Equal(t, "example.com:3800", rules.rules[2].hostHeader.Override)
 	require.Equal(t, HostHeaderDestination, rules.rules[3].hostHeader.Behavior)
+}
 
+func TestConfigParse_request_headers(t *testing.T) {
+	src := `{"rules": [
+        {
+			"host": "api.example.com",
+            "path": "/foo/*",  
+            "destination": "http://localhost:1000/v1/$1",
+			"request_headers": {"authorization": null, "x-foo": "bar"}
+		}
+        ]
+    }`
+	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
+	require.Nil(t, err)
+	require.Equal(t, nil, rules.rules[0].requestHeaders["authorization"])
+	require.Equal(t, "bar", rules.rules[0].requestHeaders["x-foo"])
+}
+
+func TestConfigParse_response_headers(t *testing.T) {
+	src := `{"rules": [
+        {
+			"host": "api.example.com",
+            "path": "/foo/*",  
+            "destination": "http://localhost:1000/v1/$1",
+			"response_headers": {"acao": " * "}
+		}
+        ]
+    }`
+	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
+	require.Nil(t, err)
+	require.Equal(t, "*", rules.rules[0].responseHeaders["acao"])
 }
 
 func TestConfigParse_destination_can_omit_wildcard_placement_marker(t *testing.T) {

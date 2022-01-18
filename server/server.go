@@ -72,15 +72,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
+			r = preprocessHeaders(r, rf.RequestHeaders)
 			if alwaysInclude == nil {
 				alwaysInclude = &http.Header{}
 			}
-			shouldSkip := len(r.Header.Get("authorization")) > 0
+			shouldSkip := shouldSkipCaching(r.Header, rf)
 			if len(rf.CacheId) == 0 && frf != nil {
 				rf = *frf
 			}
 			if len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
-				reqres, err := router.RouteRequest(ctx, r, overrideURL, nil)
+				reqres, err := router.RouteRequest(ctx, r, overrideURL, &rf.RequestHeaders, nil)
 				if err != nil {
 					writeError(*w, err)
 					return
@@ -175,6 +176,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					} else {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 					}
+				} else if alwaysInclude.Get(caching.HeaderRrrouterCacheStatus) == "pass" {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				}
 				alwaysInclude.Set(headerAge, strconv.Itoa(int(cr.Age)))
 
@@ -216,7 +219,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			case caching.NotFoundReader, caching.RevalidatingReader:
 				if cr.Reader == nil && shouldSkipIfNotCached {
-					reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
+					reqres, err := router.RouteRequest(ctx, r, overrideURL, &rf.RequestHeaders, rf.Rule)
 					if err != nil {
 						writeError(*w, err)
 						return
@@ -265,6 +268,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				var errCleanup func()
 				defer cache.Finish(key, logger)
 
+				if shouldSkip {
+					cr.Writer.SetDiskWritesDisabled()
+				}
 				if rRange != nil {
 					r.Header.Del("range")
 				}
@@ -281,7 +287,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					r.Header.Del("if-none-match")
 					r.Header.Del("if-modified-since")
 				}
-				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
+				reqres, err := router.RouteRequest(ctx, r, overrideURL, &rf.RequestHeaders, rf.Rule)
 				if err != nil {
 					writeError(*w, err)
 					return
@@ -347,7 +353,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 					}
 					if shouldSkip {
-						defer cr.Writer.Delete()
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
 					}
 					alwaysInclude.Set(headerAge, "0")
@@ -380,8 +385,14 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							}
 						}
 					}
-					writeBodyFunc = makeCachingWriteBody(rRange)
-					writer = cr.Writer
+					if shouldSkip {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+						writeBodyFunc = writeBody
+						writer = *w
+					} else {
+						writeBodyFunc = makeCachingWriteBody(rRange)
+						writer = cr.Writer
+					}
 					errCleanup = func() {
 						logger.Infof("errCleanup: %v / %v", key, key.FsName())
 						_ = cr.Writer.Delete()
@@ -394,6 +405,33 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		}
 		cachingFunc(&ow, or, nil, nil, nil, false)
 	}
+}
+
+func preprocessHeaders(r *http.Request, overrides map[string]interface{}) *http.Request {
+	for hname, hval := range overrides {
+		if hval == nil {
+			r.Header.Del(hname)
+		} else {
+			if v, ok := hval.(string); ok {
+				r.Header.Set(hname, v)
+			}
+		}
+	}
+
+	return r
+}
+
+func shouldSkipCaching(h http.Header, rf proxy.RoutingFlavors) bool {
+	if len(h.Get("authorization")) > 0 {
+		if v, ok := rf.RequestHeaders["authorization"]; ok {
+			if v == nil { // Header override is deletion of the `authorization` header
+				return false
+			}
+		}
+		return true
+	}
+
+	return false
 }
 
 func urlEquals(u1 *url.URL, u2 *url.URL) bool {

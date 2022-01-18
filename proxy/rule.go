@@ -21,6 +21,7 @@ type Rule struct {
 	hostHeader        HostHeader
 	cacheId           string
 	forceRevalidate   int
+	requestHeaders    map[string]interface{}
 	responseHeaders   map[string]string
 	restartOnRedirect bool
 	retryRule         *Rule
@@ -42,7 +43,8 @@ const (
 
 // NewRule builds a new Rule
 func NewRule(enabled bool, scheme, host, path, destination string, internal bool, methods map[string]bool, ruleType ruleType, hostHeader HostHeader,
-	recompression bool, cacheId string, forceRevalidate int, responseHeaders map[string]string, restartOnRedirect bool, retryRule *Rule) (*Rule, error) {
+	recompression bool, cacheId string, forceRevalidate int, requestHeaders map[string]interface{}, responseHeaders map[string]string,
+	restartOnRedirect bool, retryRule *Rule) (*Rule, error) {
 	if len(path) == 0 {
 		return nil, errors.New("Empty path")
 	}
@@ -76,6 +78,7 @@ func NewRule(enabled bool, scheme, host, path, destination string, internal bool
 		recompression:     recompression,
 		cacheId:           cacheId,
 		forceRevalidate:   forceRevalidate,
+		requestHeaders:    requestHeaders,
 		responseHeaders:   responseHeaders,
 		restartOnRedirect: restartOnRedirect,
 		retryRule:         retryRule,

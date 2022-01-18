@@ -1204,6 +1204,82 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	require.Equal(t, "pass", resp.Header.Get("richie-edge-cache"))
 }
 
+func TestCache_request_with_authorization_header_not_cached_but_subrequest_is_cached(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	timesRedirectHit := 0
+	redirectReceivedAuthorization := false
+	hdrs = map[string]string{}
+	redirectTargetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesRedirectHit += 1
+		redirectReceivedAuthorization = len(r.Header.Get("authorization")) > 0
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer redirectTargetServer.Close()
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		h.Set("Location", redirectTargetServer.URL+"/redir")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer originServer.Close()
+
+	reqHdrs := make(map[string]interface{})
+	reqHdrs["authorization"] = nil
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			CacheId:           "disk1",
+			RestartOnRedirect: true,
+		},
+		{
+			Path:           "/redir",
+			Destination:    fmt.Sprintf("%s", redirectTargetServer.URL+"/redir"),
+			CacheId:        "disk1",
+			RequestHeaders: reqHdrs,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer abc"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 1, timesOriginHit)
+	require.Equal(t, 1, timesRedirectHit)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	require.Equal(t, false, redirectReceivedAuthorization)
+
+	now = now.Add(time.Minute * 1)
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer 123"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 2, timesOriginHit)
+	require.Equal(t, 1, timesRedirectHit)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	age, err := strconv.Atoi(resp.Header.Get("age"))
+	require.Nil(t, err)
+	require.True(t, age >= 60)
+}
+
 func TestCache_4xx_is_cached_for_a_fixed_time(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
@@ -2144,6 +2220,25 @@ func rulesWithCacheIdRestartOnRedirect(t *testing.T, cacheId string, restartOnRe
 			Recompression:     false,
 			CacheId:           cacheId,
 			RestartOnRedirect: restartOnRedirect,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
+func rulesWithCacheIdRestartOnRedirectRequestHeaders(t *testing.T, cacheId string, restartOnRedirect bool, requestHeaders map[string]interface{}, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     false,
+			CacheId:           cacheId,
+			RestartOnRedirect: restartOnRedirect,
+			RequestHeaders:    requestHeaders,
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {

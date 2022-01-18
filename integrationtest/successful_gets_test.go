@@ -904,7 +904,7 @@ func TestConnection_redirects_pass_rrrouter_by_default(t *testing.T) {
 	}
 }
 
-func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
+func TestConnection_restart_on_redirect_follows_all_redirections(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
 		Port:       0,
