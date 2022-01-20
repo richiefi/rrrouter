@@ -3,6 +3,8 @@ package proxy
 import (
 	"errors"
 	"fmt"
+	"net/http"
+	"net/url"
 	"strings"
 )
 
@@ -25,6 +27,21 @@ type Rule struct {
 	responseHeaders   map[string]string
 	restartOnRedirect bool
 	retryRule         *Rule
+}
+
+func (rule Rule) OverrideOnRequest(r *http.Request) *http.Request {
+	destStr, err := rule.attemptMatch(r.URL.Scheme, r.URL.Host, r.URL.RequestURI())
+	if destStr == nil || err != nil {
+		return r
+	}
+
+	u, err := url.Parse(*destStr)
+	if err != nil {
+		return r
+	}
+	r.URL = u
+
+	return r
 }
 
 type HostHeader struct {

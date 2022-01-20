@@ -96,7 +96,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			}
 
-			keys := caching.KeysFromRequest(r)
+			keys := caching.KeysFromRequest(ruleDestinationRequest(r, *rf.Rule))
 			cr, key, err := cache.Get(ctx, rf.CacheId, rf.ForceRevalidate, skipRevalidate, keys, *w, logger)
 			if err != nil {
 				cache.Finish(key, logger)
@@ -405,6 +405,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		}
 		cachingFunc(&ow, or, nil, nil, nil, false)
 	}
+}
+
+func ruleDestinationRequest(r *http.Request, rule proxy.Rule) *http.Request {
+	return rule.OverrideOnRequest(r.Clone(context.Background()))
 }
 
 func preprocessHeaders(r *http.Request, overrides map[string]interface{}) *http.Request {
