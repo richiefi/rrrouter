@@ -73,12 +73,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
 			r = preprocessHeaders(r, rf.RequestHeaders)
-			if alwaysInclude == nil {
-				alwaysInclude = &http.Header{}
-			}
 			shouldSkip := shouldSkipCaching(r.Header, rf)
 			if len(rf.CacheId) == 0 && frf != nil {
 				rf = *frf
+			}
+			if alwaysInclude == nil {
+				alwaysInclude = &http.Header{}
 			}
 			if len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 				reqres, err := router.RouteRequest(ctx, r, overrideURL, &rf.RequestHeaders, nil)
