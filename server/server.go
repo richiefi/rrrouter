@@ -356,6 +356,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
 					}
 					alwaysInclude.Set(headerAge, "0")
+					clientWritesDisabled := false
 					if reqres.RedirectedURL != nil {
 						if urlEquals(reqres.RedirectedURL, r.URL) {
 							err = usererror.CreateError(508, "Loop detected")
@@ -366,11 +367,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						redirectedUrl.Scheme = reqres.OriginalURL.Scheme
 						cr.Writer.SetRedirectedURL(redirectedUrl)
 						if rf.RestartOnRedirect {
+							cr.Writer.SetClientWritesDisabled()
+							clientWritesDisabled = true
 							rr := r.Clone(r.Context())
 							rr.URL = redirectedUrl
 							rr.Host = redirectedUrl.Host
 							rr.RequestURI = reqres.RedirectedURL.RequestURI()
-							cr.Writer.SetClientWritesDisabled()
 							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
 						}
 					}
@@ -386,6 +388,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						}
 					}
 					if shouldSkip {
+						if clientWritesDisabled {
+							return
+						}
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
 						writeBodyFunc = writeBody
 						writer = *w
