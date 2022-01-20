@@ -644,11 +644,11 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 		}
 
 		fd, err := crw.WrittenFile()
-		if fd != nil {
-			defer fd.Close()
-		}
 		if err != nil {
 			return err
+		}
+		if fd != nil {
+			defer fd.Close()
 		}
 
 		fi, err := fd.Stat()
