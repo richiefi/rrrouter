@@ -184,6 +184,29 @@ response_headers:
 ```
 applies all keys and their values to the response headers. Whitespace is trimmed from both the key and value.
 
+## Restart on redirect
+
+A rule with
+```yaml
+restart_on_redirect: true
+```
+will cause the URL in the `Location` header to be requested as if the request was made by the client, using the same method and headers. When a cache is used, each redirected URL is cached as a separate entry.
+
+For example, with a set of rules being
+```yaml
+rules:
+  - path: /config/v1/*
+    destination: https://richie-appconfig.example.com/v1/$1
+    restart_on_redirect: true
+  - path: /config/v2/*
+    host: external-host.example.com
+    destination: https://external-host.example.com/$1
+    request_headers:
+      authorization: null
+    cache: c1
+```
+and a request with an `authorization` header to `app.example.com/config/v1/*`, where a redirection from `https://richie-appconfig.example.com/v1/$1` to `https://external-host.example.com/config/v2/*` will result in that URL being requested by rrrouter, with the `authorization` header dropped. In this case, an "outer" request with user-specific credentials would not be cached, while the "inner" redirection would be cached for all following requests, as the user-specific credentials are dropped before requesting that resource.
+
 ## Traffic Copying
 
 In addition to proxying requests, rrrouter can copy traffic to a host without reporting this to the user.
