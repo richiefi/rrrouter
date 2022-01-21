@@ -235,8 +235,12 @@ func TestConfigParse_request_headers(t *testing.T) {
     }`
 	rules, err := ParseRules([]byte(src), testhelp.NewLogger(t))
 	require.Nil(t, err)
-	require.Equal(t, nil, rules.rules[0].requestHeaders["authorization"])
-	require.Equal(t, "bar", rules.rules[0].requestHeaders["x-foo"])
+	val, exists := rules.rules[0].requestHeaders["authorization"]
+	require.Equal(t, exists, true)
+	var nilval *string = nil
+	require.Equal(t, nilval, val)
+	var barval = "bar"
+	require.Equal(t, &barval, rules.rules[0].requestHeaders["x-foo"])
 }
 
 func TestConfigParse_response_headers(t *testing.T) {

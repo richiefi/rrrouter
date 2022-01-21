@@ -156,6 +156,17 @@ rules:
       hostheader: app2.example.com:9000
 ```
 
+## Request header overriding
+
+A rule with
+```yaml
+request_headers:
+  authorization: null
+  foo: bar
+```
+
+applies all keys and their values to the request headers, prior to sending the request to the origin. A special value, `null`, can be used to remove a header.
+
 ## Response header overriding
 
 A rule with
@@ -163,7 +174,7 @@ A rule with
 response_headers:
   access-control-allow-origin: "*"
 ```
-applies all keys and their values the response headers. Whitespace is trimmed from both the key and value.
+applies all keys and their values to the response headers. Whitespace is trimmed from both the key and value.
 
 ## Traffic Copying
 

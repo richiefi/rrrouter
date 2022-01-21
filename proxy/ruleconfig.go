@@ -114,10 +114,14 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.ForceRevalidate > 0 {
 			forceRevalidate = rsrc.ForceRevalidate
 		}
-		requestHeaders := make(map[string]interface{}, 0)
+		requestHeaders := make(map[string]*string, 0)
 		if len(rsrc.RequestHeaders) > 0 {
 			for k, v := range rsrc.RequestHeaders {
-				requestHeaders[strings.ToLower(strings.TrimSpace(k))] = v
+				if v == nil {
+					requestHeaders[strings.ToLower(strings.TrimSpace(k))] = nil
+				} else if val, ok := v.(string); ok {
+					requestHeaders[strings.ToLower(strings.TrimSpace(k))] = &val
+				}
 			}
 		}
 		responseHeaders := make(map[string]string, 0)

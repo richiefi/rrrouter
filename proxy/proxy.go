@@ -37,7 +37,7 @@ type RequestResult struct {
 
 // Router is the meat of rrrouter
 type Router interface {
-	RouteRequest(context.Context, *http.Request, *url.URL, *map[string]interface{}, *Rule) (*RequestResult, error)
+	RouteRequest(context.Context, *http.Request, *url.URL, *Rule) (*RequestResult, error)
 	GetRoutingFlavors(*http.Request) RoutingFlavors
 	SetRules(*Rules)
 }
@@ -46,7 +46,7 @@ type RoutingFlavors struct {
 	CacheId           string
 	ForceRevalidate   int
 	RestartOnRedirect bool
-	RequestHeaders    map[string]interface{}
+	RequestHeaders    map[string]*string
 	ResponseHeaders   http.Header
 	Rule              *Rule
 }
@@ -155,7 +155,7 @@ type rrErr struct {
 	err    error
 }
 
-func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideURL *url.URL, overrideHeaders *map[string]interface{}, fallbackRule *Rule) (*RequestResult, error) {
+func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
 	urlMatch, err := r.createUrlMatch(req, nil, logctx)
@@ -164,7 +164,7 @@ func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideUR
 	}
 
 	ch := make(chan rrErr, 1)
-	go r.routeRequest(ctx, ch, urlMatch, req, overrideHeaders, overrideURL, fallbackRule, logctx)
+	go r.routeRequest(ctx, ch, urlMatch, req, overrideURL, fallbackRule, logctx)
 	select {
 	case <-ctx.Done():
 		return nil, ctx.Err()
@@ -183,8 +183,8 @@ func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx 
 	return urlMatch, nil
 }
 
-func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlMatch, req *http.Request, overrideHeaders *map[string]interface{}, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) {
-	requestsResult, err := r.createOutgoingRequests(urlMatch, req, overrideURL, overrideHeaders, fallbackRule)
+func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) {
+	requestsResult, err := r.createOutgoingRequests(urlMatch, req, overrideURL, fallbackRule)
 	if err != nil {
 		logctx.WithError(err).Error("error creating outgoing request")
 		ch <- rrErr{nil, err}
@@ -257,7 +257,7 @@ func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlM
 				ch <- rrErr{nil, err}
 				return
 			}
-			r.routeRequest(ctx, ch, urlMatch, req, nil, nil, nil, logctx)
+			r.routeRequest(ctx, ch, urlMatch, req, nil, nil, logctx)
 			return
 		} else if err != nil {
 			logctx.WithError(err).Error("Error performing main request")
@@ -493,7 +493,7 @@ func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
 	return nil, nil
 }
 
-func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, overrideHeaders *map[string]interface{}, fallbackRule *Rule) (*createRequestsResult, error) {
+func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*createRequestsResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createOutgoingRequest"})
 	var mainRequest *http.Request
 	var err error
@@ -520,7 +520,7 @@ func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, o
 		} else {
 			u = urlMatch.url
 		}
-		mainRequest, err = r.createProxyRequest(req, rule.internal, rule.hostHeader, u, overrideHeaders)
+		mainRequest, err = r.createProxyRequest(req, rule.internal, rule.hostHeader, u)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating mainRequest")
 			return nil, err
@@ -531,7 +531,7 @@ func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, o
 	}
 	var copyRequest *http.Request
 	if urlMatch.copyURL != nil {
-		copyRequest, err = r.createProxyRequest(req, urlMatch.copyRule.internal, urlMatch.copyRule.hostHeader, urlMatch.copyURL, overrideHeaders)
+		copyRequest, err = r.createProxyRequest(req, urlMatch.copyRule.internal, urlMatch.copyRule.hostHeader, urlMatch.copyURL)
 		if err != nil {
 			logctx.WithError(err).Error("Error creating copyRequest")
 			return nil, err
@@ -566,7 +566,7 @@ func filterHeader(originalHeader http.Header, filteredHeaderNames []string) http
 	return newHeader
 }
 
-func (r *router) createProxyRequest(req *http.Request, internal bool, hostHeader HostHeader, url *url.URL, overrideHeaders *map[string]interface{}) (*http.Request, error) {
+func (r *router) createProxyRequest(req *http.Request, internal bool, hostHeader HostHeader, url *url.URL) (*http.Request, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createProxyRequest", "url": url})
 	logctx.Debug("Constructing outgoing request")
 	preq, err := http.NewRequestWithContext(req.Context(), req.Method, url.String(), req.Body)
