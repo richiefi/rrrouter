@@ -680,6 +680,9 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 			}
 		}
 		if !ok {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			panic(fmt.Sprintf("Caching writer missing"))
 		}
 
@@ -689,6 +692,9 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 
 		fd, err := crw.WrittenFile()
 		if err != nil {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			return err
 		}
 		if fd != nil {
@@ -697,11 +703,17 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 
 		fi, err := fd.Stat()
 		if err != nil {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			return err
 		}
 
 		_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rr, logctx)
 		if err != nil {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			return err
 		}
 
