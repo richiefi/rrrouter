@@ -214,7 +214,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if fatal {
 						cache.Finish(key, logger)
 					}
-					writeError(*w, err)
 				}
 				return
 			case caching.NotFoundReader, caching.RevalidatingReader:
