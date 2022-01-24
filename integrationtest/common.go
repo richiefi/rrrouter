@@ -101,15 +101,23 @@ func (sh *ServerHelper) expectStatus(resp *http.Response, expect int, msg string
 }
 
 func (sh *ServerHelper) getURLQuery(path string, testServerURL string, query url.Values, header http.Header) *http.Response {
-	return sh.getURLQueryWithBody(path, testServerURL, query, header, nil)
+	return sh.URLQueryWithBody("GET", path, testServerURL, query, header, nil)
+}
+
+func (sh *ServerHelper) headURLQuery(path string, testServerURL string, query url.Values, header http.Header) *http.Response {
+	return sh.URLQueryWithBody("HEAD", path, testServerURL, query, header, nil)
 }
 
 func (sh *ServerHelper) getURLQueryWithBody(path string, testServerURL string, query url.Values, header http.Header, body io.ReadCloser) *http.Response {
+	return sh.URLQueryWithBody("GET", path, testServerURL, query, header, body)
+}
+
+func (sh *ServerHelper) URLQueryWithBody(method string, path string, testServerURL string, query url.Values, header http.Header, body io.ReadCloser) *http.Response {
 	urlstr := testServerURL + path
 	if len(query) > 0 {
 		urlstr += "?" + query.Encode()
 	}
-	req, err := http.NewRequest("GET", urlstr, nil)
+	req, err := http.NewRequest(method, urlstr, nil)
 	if body != nil {
 		req.Body = body
 	}

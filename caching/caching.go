@@ -389,6 +389,7 @@ func (c *cache) defaultStorage() *Storage {
 }
 
 type Key struct {
+	method          string
 	host            string
 	path            string
 	opaqueOrigin    bool
@@ -398,21 +399,25 @@ type Key struct {
 
 func KeysFromRequest(r *http.Request) []Key {
 	keys := make([]Key, 0)
+	method := ""
+	if r.Method != "GET" {
+		method = r.Method
+	}
 	if len(r.Header.Get("origin")) > 0 {
-		k := newKey(r.Host, r.URL.RequestURI(), false, r.Header, append(keyClientHeaders, "origin"))
+		k := newKey(method, r.Host, r.URL.RequestURI(), false, r.Header, append(keyClientHeaders, "origin"))
 		keys = append(keys, k)
-		k = newKey(r.Host, r.URL.RequestURI(), true, r.Header, keyClientHeaders)
+		k = newKey(method, r.Host, r.URL.RequestURI(), true, r.Header, keyClientHeaders)
 		keys = append(keys, k)
 	} else {
-		k := newKey(r.Host, r.URL.RequestURI(), false, r.Header, keyClientHeaders)
+		k := newKey(method, r.Host, r.URL.RequestURI(), false, r.Header, keyClientHeaders)
 		keys = append(keys, k)
 	}
 
 	return keys
 }
 
-func newKey(host string, path string, opaqueOrigin bool, originalHeaders http.Header, allowHeaderKeys []string) Key {
-	k := Key{host: host, path: path, opaqueOrigin: opaqueOrigin, storedHeaders: util.AllowHeaders(originalHeaders, allowHeaderKeys), originalHeaders: originalHeaders}
+func newKey(method string, host string, path string, opaqueOrigin bool, originalHeaders http.Header, allowHeaderKeys []string) Key {
+	k := Key{method: method, host: host, path: path, opaqueOrigin: opaqueOrigin, storedHeaders: util.AllowHeaders(originalHeaders, allowHeaderKeys), originalHeaders: originalHeaders}
 	return k
 }
 
@@ -429,7 +434,7 @@ func (k Key) FsName() string {
 			hs += v
 		}
 	}
-	s := k.host + k.path + hs
+	s := k.method + k.host + k.path + hs
 	if k.opaqueOrigin {
 		s += "opaqueOrigin"
 	}

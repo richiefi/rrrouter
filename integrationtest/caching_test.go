@@ -152,6 +152,57 @@ func TestCache_query_is_included_in_key(t *testing.T) {
 	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 }
 
+func TestCache_method_is_part_of_cache_key(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.headURLQuery("/t/asdf", listener.URL, url.Values{"Accept-Encoding": {"gzip, deflate"}}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte(""), body)
+	require.Equal(t, 1, timesOriginHit)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Minute * 1)
+	resp = sh.headURLQuery("/t/asdf", listener.URL, url.Values{"Accept-Encoding": {"gzip, deflate"}}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte(""), body)
+	require.Equal(t, 1, timesOriginHit)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{"Accept-Encoding": {"gzip, deflate"}}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 2, timesOriginHit)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	now = now.Add(time.Minute * 1)
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{"Accept-Encoding": {"gzip, deflate"}}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 2, timesOriginHit)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+}
+
 func tempFile(t *testing.T, b []byte) *os.File {
 	fd, err := ioutil.TempFile(t.TempDir(), "caching")
 	if err != nil {
