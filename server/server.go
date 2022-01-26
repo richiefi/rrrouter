@@ -180,7 +180,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				var statusOverride *int
 				if rRange != nil {
-					if cr.Metadata.Size == 0 {
+					if cr.Metadata.FdSize == 0 {
 						msg := fmt.Sprintf("Range requested but resource was zero-length. Key on disk: %v", key.FsName())
 						logger.WithField("range", *rRange).WithField("key", key).Warnf(msg)
 						sentry.CaptureMessage(msg)

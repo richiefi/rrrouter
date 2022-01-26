@@ -44,6 +44,7 @@ type StorageMetadata struct {
 	Created        int64
 	Revalidated    int64
 	Size           int64
+	FdSize         int64
 }
 
 func encodeStorageMetadata(sm StorageMetadata) []byte {
@@ -387,6 +388,9 @@ func getStorageMetadata(ctx context.Context, f *os.File, attrName string) (Stora
 	if err != nil {
 		return StorageMetadata{}, err
 	}
+
+	fi, err := f.Stat()
+	sm.FdSize = fi.Size()
 
 	return sm, nil
 }

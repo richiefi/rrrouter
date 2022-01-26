@@ -254,12 +254,12 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 		}
 
 		cr := c.getReaderOrWriter(ctx, cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
-		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}
+		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}
 		cr.Age = age
 		return cr, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
 }
 
 func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
@@ -482,6 +482,7 @@ type CacheMetadata struct {
 	Header        http.Header
 	Status        int
 	Size          int64
+	FdSize        int64
 	RedirectedURL string
 }
 
