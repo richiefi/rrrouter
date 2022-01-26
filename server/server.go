@@ -81,11 +81,28 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				alwaysInclude = &http.Header{}
 			}
 			if len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
-				reqres, err := router.RouteRequest(ctx, r, overrideURL, nil)
+				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 				if err != nil {
 					writeError(*w, err)
 					return
 				}
+
+				if reqres.RedirectedURL != nil && rf.RestartOnRedirect {
+					if urlEquals(reqres.RedirectedURL, r.URL) {
+						err = usererror.CreateError(508, "Loop detected")
+						writeError(*w, err)
+						return
+					}
+					redirectedUrl := util.RedirectedURL(r, reqres.OriginalURL, reqres.RedirectedURL)
+					redirectedUrl.Scheme = reqres.OriginalURL.Scheme
+					rr := r.Clone(r.Context())
+					rr.URL = redirectedUrl
+					rr.Host = redirectedUrl.Host
+					rr.RequestURI = reqres.RedirectedURL.RequestURI()
+					cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
+					return
+				}
+
 				for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
 					for _, hval := range hvals {
 						alwaysInclude.Set(hname, hval)
