@@ -179,15 +179,22 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				alwaysInclude.Set(headerAge, strconv.Itoa(int(cr.Age)))
 
 				var statusOverride *int
-				if rRange != nil && cr.Metadata.Status == 200 {
-					cl, _ := strconv.Atoi(cr.Metadata.Header.Get("content-length"))
-					var s int
-					s, alwaysInclude = setRangedHeaders(rRange, int64(cl), cr.Metadata.Status, alwaysInclude)
-					if s >= 400 {
-						(*w).WriteHeader(s)
+				if rRange != nil {
+					if cr.Metadata.Size == 0 {
+						logger.WithField("range", *rRange).WithField("key", key).WithField("key.FSName()", key.FsName()).Warnf("Range requested but resource was zero-length")
+						(*w).WriteHeader(503)
 						return
 					}
-					statusOverride = &s
+					if cr.Metadata.Status == 200 {
+						cl, _ := strconv.Atoi(cr.Metadata.Header.Get("content-length"))
+						var s int
+						s, alwaysInclude = setRangedHeaders(rRange, int64(cl), cr.Metadata.Status, alwaysInclude)
+						if s >= 400 {
+							(*w).WriteHeader(s)
+							return
+						}
+						statusOverride = &s
+					}
 				}
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
