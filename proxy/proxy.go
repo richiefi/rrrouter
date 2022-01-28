@@ -43,11 +43,12 @@ type Router interface {
 }
 
 type RoutingFlavors struct {
-	CacheId          string
-	ForceRevalidate  int
-	FlattenRedirects bool
-	ResponseHeaders  http.Header
-	Rule             *Rule
+	CacheId           string
+	ForceRevalidate   int
+	RestartOnRedirect bool
+	RequestHeaders    map[string]*string
+	ResponseHeaders   http.Header
+	Rule              *Rule
 }
 
 func headersEqual(h1 http.Header, h2 http.Header) bool {
@@ -119,6 +120,9 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 			Timeout:   30 * time.Second,
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
+			Resolver: &net.Resolver{
+				PreferGo: true,
+			},
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
 		MaxIdleConns:          100,
@@ -210,7 +214,7 @@ func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlM
 	}
 	if requestsResult.copyRequest != nil {
 		var copyResp *http.Response
-		if requestsResult.flattenRedirects && len(requestsResult.cacheId) == 0 {
+		if requestsResult.restartOnRedirect && len(requestsResult.cacheId) == 0 {
 			copyResp, _, err = r.follow(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
 		} else {
 			copyResp, err = r.performRequest(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
@@ -226,7 +230,7 @@ func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlM
 	var mainResp *http.Response
 	var redirectedURL *url.URL
 	if requestsResult.mainRequest != nil {
-		if requestsResult.flattenRedirects && len(requestsResult.cacheId) == 0 {
+		if requestsResult.restartOnRedirect && len(requestsResult.cacheId) == 0 {
 			mainResp, redirectedURL, err = r.follow(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
 		} else {
 			mainResp, err = r.performRequest(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
@@ -297,7 +301,7 @@ func (r *router) follow(ctx context.Context, req *http.Request, requestData []by
 				return nil, nil, err
 			}
 
-			req.URL = util.RedirectedURL(req, redirectedURL)
+			req.URL = util.RedirectedURL(req, req.URL, redirectedURL)
 			req.Host = req.URL.Host
 			requestData = nil
 		} else {
@@ -334,7 +338,7 @@ func (r *router) getRoutingFlavors(rule *Rule) RoutingFlavors {
 	rf := RoutingFlavors{}
 	rf.CacheId = rule.cacheId
 	rf.ForceRevalidate = rule.forceRevalidate
-	rf.FlattenRedirects = rule.flattenRedirects
+	rf.RestartOnRedirect = rule.restartOnRedirect
 	h := http.Header{}
 	if len(rule.responseHeaders) > 0 {
 		for k, v := range rule.responseHeaders {
@@ -344,6 +348,7 @@ func (r *router) getRoutingFlavors(rule *Rule) RoutingFlavors {
 	if len(h) > 0 {
 		rf.ResponseHeaders = h
 	}
+	rf.RequestHeaders = rule.requestHeaders
 	rf.Rule = rule
 
 	return rf
@@ -466,13 +471,13 @@ func retryable(req *http.Request) bool {
 }
 
 type createRequestsResult struct {
-	mainRequest      *http.Request
-	copyRequest      *http.Request
-	recompression    bool
-	flattenRedirects bool
-	cacheId          string
-	rule             *Rule
-	retryRule        *Rule
+	mainRequest       *http.Request
+	copyRequest       *http.Request
+	recompression     bool
+	restartOnRedirect bool
+	cacheId           string
+	rule              *Rule
+	retryRule         *Rule
 }
 
 func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
@@ -494,7 +499,7 @@ func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, o
 	var err error
 	logctx.WithFields(apexlog.Fields{"urlMatch.rule": urlMatch.rule, "urlMatch.copyURL": urlMatch.copyURL}).Debug("Got url match")
 	recompression := false
-	flattenRedirects := false
+	restartOnRedirect := false
 	cacheId := ""
 	var rule *Rule
 	var retryRule *Rule
@@ -520,7 +525,7 @@ func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, o
 			logctx.WithError(err).Error("Error creating mainRequest")
 			return nil, err
 		}
-		flattenRedirects = rule.flattenRedirects
+		restartOnRedirect = rule.restartOnRedirect
 		cacheId = rule.cacheId
 		retryRule = rule.retryRule
 	}
@@ -533,13 +538,13 @@ func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, o
 		}
 	}
 	return &createRequestsResult{
-		mainRequest:      mainRequest,
-		copyRequest:      copyRequest,
-		recompression:    recompression,
-		flattenRedirects: flattenRedirects,
-		cacheId:          cacheId,
-		retryRule:        retryRule,
-		rule:             rule,
+		mainRequest:       mainRequest,
+		copyRequest:       copyRequest,
+		recompression:     recompression,
+		restartOnRedirect: restartOnRedirect,
+		cacheId:           cacheId,
+		retryRule:         retryRule,
+		rule:              rule,
 	}, err
 }
 
@@ -716,7 +721,7 @@ func destinationString(u *url.URL) string {
 	}
 	u2 := *u
 	u2.Host = util.DropPort(u2.Host)
-	u2.RawQuery = ""
+	//u2.RawQuery = ""
 	return u2.String()
 }
 

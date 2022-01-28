@@ -43,23 +43,25 @@ richie-request-router --help
 
 ## Routing Configuration
 
-rrrouter's routing configuration consists of a list of *rules*, each containing an *url pattern*, a *destination* and additional flags.
+rrrouter's routing configuration consists of a list of *rules*, each containing an *url path pattern*, an optional *host*, a *destination* and additional flags.
 
 The configuration can be specified in JSON or YAML and can be fetched from a remote URL (set with the `MAPPING_URL` environment variable) or a local file (using `MAPPING_FILE`).
 
 ```json
 {
-	"rules": [
-		{
-			"pattern": "app.example.com/config/v1/*",
-			"destination": "https://richie-appconfig.herokuapp.com/v1/$1",
-			"internal": true
-		},
-		{
-			"pattern": "http://app.example.com/external-customer-1/srv/*",
-			"destination": "https://s.external-customer-1.com/$1"
-		}
-	]
+  "rules": [
+    {
+      "path": "/config/v1/*", 
+      "host": "app.example.com",
+      "destination": "https://richie-appconfig.herokuapp.com/v1/$1",
+      "internal": true
+    },
+    {
+        "path": "/external-customer-1/srv/*",
+        "host": "app.example.com",
+        "destination": "https://s.external-customer-1.com/$1"
+    }
+  ]
 }
 ```
 
@@ -67,14 +69,14 @@ The configuration can be specified in JSON or YAML and can be fetched from a rem
 rules:
     - destination: https://richie-appconfig.herokuapp.com/v1/$1
       internal: true
-      pattern: app.example.com/config/v1/*
+      path: /config/v1/*
+      host: app.example.com
     - destination: https://s.external-customer-1.com/$1
-      pattern: http://app.example.com/external-customer-1/srv/*
+      path: /external-customer-1/srv/*
+      host: app.example.com
 ```
 
-The pattern can include asterisks (*) as wildcards. The destinations can refer to these wildcards with the $1, $2 (etc) notation.
-
-If the pattern doesn't start with `http://` or `https://`, it will match both.
+The path pattern can include asterisks (*) as wildcards. The destinations can refer to these wildcards with the $1, $2 (etc) notation.
 
 The first matching rule is selected.
 
@@ -109,14 +111,18 @@ You can specify that a rule applies to only a subset of HTTP methods. To do this
 
 ```json
 {
-	"rules": [
-		{
-			"pattern": "app.example.com/config/v1/*",
-			"destination": "https://richie-appconfig.herokuapp.com/v1/$1",
-			"internal": true,
-			"methods": ["GET", "HEAD"]
-		}
-	]
+  "rules": [
+    {
+      "path": "/config/v1/*",
+      "host": "app.example.com",
+      "destination": "https://richie-appconfig.herokuapp.com/v1/$1",
+      "internal": true,
+      "methods": [
+        "GET",
+        "HEAD"
+      ]
+    }
+  ]
 }
 ```
 
@@ -137,7 +143,8 @@ Rules without this field default to not performing any compression:
 ```yaml
 rules:
     - destination: https://richie-appconfig.herokuapp.com/v1/$1
-      pattern: app.example.com/config/v1/*
+      path: /config/v1/*
+      host: app.example.com
       recompression: true
 ```
 
@@ -152,9 +159,21 @@ A rule with `hostheader: original` will use what the incoming request used. `hos
 ```yaml
 rules:
     - destination: https://richie-appconfig.herokuapp.com/v1/$1
-      pattern: app.example.com/config/v1/*
+      path: /config/v1/*
+      host: app.example.com
       hostheader: app2.example.com:9000
 ```
+
+## Request header overriding
+
+A rule with
+```yaml
+request_headers:
+  authorization: null
+  foo: bar
+```
+
+applies all keys and their values to the request headers, prior to sending the request to the origin. A special value, `null`, can be used to remove a header.
 
 ## Response header overriding
 
@@ -163,7 +182,30 @@ A rule with
 response_headers:
   access-control-allow-origin: "*"
 ```
-applies all keys and their values the response headers. Whitespace is trimmed from both the key and value.
+applies all keys and their values to the response headers. Whitespace is trimmed from both the key and value.
+
+## Restart on redirect
+
+A rule with
+```yaml
+restart_on_redirect: true
+```
+will cause the URL in the `Location` header to be requested as if the request was made by the client, using the same method and headers. When a cache is used, each redirected URL is cached as a separate entry.
+
+For example, with a set of rules being
+```yaml
+rules:
+  - path: /config/v1/*
+    destination: https://richie-appconfig.example.com/v1/$1
+    restart_on_redirect: true
+  - path: /config/v2/*
+    host: external-host.example.com
+    destination: https://external-host.example.com/$1
+    request_headers:
+      authorization: null
+    cache: c1
+```
+and a request with an `authorization` header to `app.example.com/config/v1/*`, where a redirection from `https://richie-appconfig.example.com/v1/$1` to `https://external-host.example.com/config/v2/*` will result in that URL being requested by rrrouter, with the `authorization` header dropped. In this case, an "outer" request with user-specific credentials would not be cached, while the "inner" redirection would be cached for all following requests, as the user-specific credentials are dropped before requesting that resource.
 
 ## Traffic Copying
 
@@ -173,13 +215,13 @@ In addition to proxying requests, rrrouter can copy traffic to a host without re
 {
 	"rules": [
 		{
-			"pattern": "app.example.com/config/v1/*",
+			"path": "/config/v1/*",
 			"destination": "https://richie-appconfig-staging.herokuapp.com/v1/$1",
 			"internal": true,
 			"type": "copy_traffic"
 		},
 		{
-			"pattern": "app.example.com/config/v1/*",
+			"path": "/config/v1/*",
 			"destination": "https://richie-appconfig.herokuapp.com/v1/$1",
 			"internal": true
 		}
@@ -200,8 +242,8 @@ The mechanism for selecting rules is as follows:
 1. Rules are checked in the order they are in the file.
 2. If a rule's `enabled` is false, the rule is skipped.
 3. If a rule has a `methods` list and it does not include the request method, the rule is skipped.
-4. If a rule's pattern matches and its type is `copy_traffic`, it's selected as the copy target. This will not be overridden by later `copy_traffic` matches.
-5. If a rule's pattern matches and its type is `proxy`, it's selected as the proxy target and the search is terminated.
+4. If a rule matches and its type is `copy_traffic`, it's selected as the copy target. This will not be overridden by later `copy_traffic` matches.
+5. If a rule matches and its type is `proxy`, it's selected as the proxy target and the search is terminated.
 
 ## Request and Response Headers
 

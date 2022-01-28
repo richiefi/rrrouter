@@ -904,7 +904,7 @@ func TestConnection_redirects_pass_rrrouter_by_default(t *testing.T) {
 	}
 }
 
-func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
+func TestConnection_restart_on_redirect_follows_all_redirections(t *testing.T) {
 	sh := setup(t)
 	conf := &config.Config{
 		Port:       0,
@@ -915,28 +915,28 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 		status   int
 		location string
 	}
-	sls := []statusLocation{{status: 302, location: "/matches/1st"}, {status: 307, location: "/2nd/does-not-match"}, {status: 200}}
+	sls := []statusLocation{{status: 302, location: "/matches/1st"}, {status: 307, location: "/2nd/does-not-match"}}
 	var sl statusLocation
 	timesOriginHit := 0
 	targetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		timesOriginHit += 1
-		sl, sls = sls[0], sls[1:]
-		if sl.status != 200 {
+		if len(sls) != 0 {
+			sl, sls = sls[0], sls[1:]
 			w.Header().Set("location", sl.location)
 			w.WriteHeader(sl.status)
 			return
 		}
-		w.WriteHeader(200)
+		w.WriteHeader(http.StatusOK)
 		w.Write([]byte("ab"))
 	}))
 	defer targetServer.Close()
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/matches/*",
-			Destination:      fmt.Sprintf("%s/$1", targetServer.URL),
-			Internal:         false,
-			FlattenRedirects: true,
+			Path:              "/t/matches/*",
+			Destination:       fmt.Sprintf("%s/$1", targetServer.URL),
+			Internal:          false,
+			RestartOnRedirect: true,
 		},
 	}, sh.Logger)
 	require.Nil(t, err)
@@ -945,6 +945,8 @@ func TestConnection_flatten_redirects_follows_all_redirections(t *testing.T) {
 	defer listener.Close()
 
 	resp := sh.getURLQuery("/t/matches/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": []string{"gzip"}})
-	require.Equal(t, resp.StatusCode, 200)
-	require.Equal(t, timesOriginHit, 3)
+	body := sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 4, timesOriginHit)
 }

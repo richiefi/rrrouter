@@ -1204,6 +1204,82 @@ func TestCache_request_with_authorization_header_skipped(t *testing.T) {
 	require.Equal(t, "pass", resp.Header.Get("richie-edge-cache"))
 }
 
+func TestCache_request_with_authorization_header_not_cached_but_subrequest_is_cached(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	timesRedirectHit := 0
+	redirectReceivedAuthorization := false
+	hdrs = map[string]string{}
+	redirectTargetServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesRedirectHit += 1
+		redirectReceivedAuthorization = len(r.Header.Get("authorization")) > 0
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer redirectTargetServer.Close()
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		h.Set("Location", redirectTargetServer.URL+"/redir")
+		w.WriteHeader(http.StatusTemporaryRedirect)
+	}))
+	defer originServer.Close()
+
+	reqHdrs := make(map[string]interface{})
+	reqHdrs["authorization"] = nil
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			CacheId:           "disk1",
+			RestartOnRedirect: true,
+		},
+		{
+			Path:           "/redir",
+			Destination:    fmt.Sprintf("%s", redirectTargetServer.URL+"/redir"),
+			CacheId:        "disk1",
+			RequestHeaders: reqHdrs,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer abc"}})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 1, timesOriginHit)
+	require.Equal(t, 1, timesRedirectHit)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+
+	require.Equal(t, false, redirectReceivedAuthorization)
+
+	now = now.Add(time.Minute * 1)
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer 123"}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 2, timesOriginHit)
+	require.Equal(t, 1, timesRedirectHit)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	age, err := strconv.Atoi(resp.Header.Get("age"))
+	require.Nil(t, err)
+	require.True(t, age >= 60)
+}
+
 func TestCache_4xx_is_cached_for_a_fixed_time(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
@@ -1408,7 +1484,7 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	})
 	storages = append(storages, &ts)
 
-	rules := rulesWithCacheIdFlattenredirects(t, "disk1", true, originServer, sh)
+	rules := rulesWithCacheIdRestartOnRedirect(t, "disk1", true, originServer, sh)
 	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
 		return now
 	})
@@ -1492,7 +1568,7 @@ func TestCache_redirection_steps_cached_individually_with_recompression(t *testi
 	})
 	storages = append(storages, &ts)
 
-	rules := rulesWithCacheIdFlattenredirectsRecompression(t, "disk1", true, true, originServer, sh)
+	rules := rulesWithCacheIdRestartOnRedirectRecompression(t, "disk1", true, true, originServer, sh)
 	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
 		return now
 	})
@@ -1575,7 +1651,7 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {})
 	storages = append(storages, &ts)
 
-	rules := rulesWithCacheIdFlattenredirectsResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
+	rules := rulesWithCacheIdRestartOnRedirectResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
 	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
 		return now
 	})
@@ -1594,13 +1670,13 @@ func TestCache_redirection_subrequests_inherit_parent_request_rules_if_no_match(
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/*",
-			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
-			Internal:         false,
-			Recompression:    true,
-			CacheId:          "disk1",
-			FlattenRedirects: true,
-			ResponseHeaders:  map[string]string{"timing-allow-origin": "something-else"},
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     true,
+			CacheId:           "disk1",
+			RestartOnRedirect: true,
+			ResponseHeaders:   map[string]string{"timing-allow-origin": "something-else"},
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {
@@ -1647,7 +1723,7 @@ func TestCache_recursive_redirects_not_allowed(t *testing.T) {
 	ts := newTestStorage(caching.NewDiskStorage("disk1", storageDir, int64(datasize.MB*1), sh.Logger, func() time.Time { return now }), func(key caching.Key) {})
 	storages = append(storages, &ts)
 
-	rules := rulesWithCacheIdFlattenredirectsResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
+	rules := rulesWithCacheIdRestartOnRedirectResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
 	c := caching.NewCacheWithStorages(storages, sh.Logger, func() time.Time {
 		return now
 	})
@@ -1661,7 +1737,7 @@ func TestCache_recursive_redirects_not_allowed(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
-func TestCache_flattened_relative_redirects_use_rule_destination_host(t *testing.T) {
+func TestCache_restart_on_redirect_relative_redirects_use_destination_host(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
 	timesOriginHit := 0
@@ -1683,7 +1759,7 @@ func TestCache_flattened_relative_redirects_use_rule_destination_host(t *testing
 
 	setRedirectedURLString := ""
 	written := []byte{}
-	rules := rulesWithCacheIdFlattenredirectsResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
+	rules := rulesWithCacheIdRestartOnRedirectResponseHeaders(t, "disk1", true, map[string]string{"timing-allow-origin": "*"}, originServer, sh)
 	tc := NewTestCacheGet("disk1", func(s string, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 		sw := NewTestStorageWriter(
 			func(p []byte) (n int, err error) {
@@ -1879,13 +1955,13 @@ func TestCache_entry_is_revalidated_for_waiting_clients_with_rules_changed(t *te
 
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/*",
-			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
-			Internal:         false,
-			Recompression:    true,
-			CacheId:          "disk1",
-			FlattenRedirects: true,
-			ResponseHeaders:  map[string]string{"hello": "ruby"},
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     true,
+			CacheId:           "disk1",
+			RestartOnRedirect: true,
+			ResponseHeaders:   map[string]string{"hello": "ruby"},
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {
@@ -2135,15 +2211,15 @@ func rulesWithCacheId(t *testing.T, cacheId string, originServer *httptest.Serve
 	return rules
 }
 
-func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedirects bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+func rulesWithCacheIdRestartOnRedirect(t *testing.T, cacheId string, restartOnRedirect bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/*",
-			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
-			Internal:         false,
-			Recompression:    false,
-			CacheId:          cacheId,
-			FlattenRedirects: flattenRedirects,
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     false,
+			CacheId:           cacheId,
+			RestartOnRedirect: restartOnRedirect,
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {
@@ -2153,15 +2229,16 @@ func rulesWithCacheIdFlattenredirects(t *testing.T, cacheId string, flattenRedir
 	return rules
 }
 
-func rulesWithCacheIdFlattenredirectsRecompression(t *testing.T, cacheId string, flattenRedirects bool, recompression bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+func rulesWithCacheIdRestartOnRedirectRequestHeaders(t *testing.T, cacheId string, restartOnRedirect bool, requestHeaders map[string]interface{}, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/*",
-			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
-			Internal:         false,
-			Recompression:    recompression,
-			CacheId:          cacheId,
-			FlattenRedirects: flattenRedirects,
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     false,
+			CacheId:           cacheId,
+			RestartOnRedirect: restartOnRedirect,
+			RequestHeaders:    requestHeaders,
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {
@@ -2171,16 +2248,34 @@ func rulesWithCacheIdFlattenredirectsRecompression(t *testing.T, cacheId string,
 	return rules
 }
 
-func rulesWithCacheIdFlattenredirectsResponseHeaders(t *testing.T, cacheId string, flattenRedirects bool, responseHeaders map[string]string, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+func rulesWithCacheIdRestartOnRedirectRecompression(t *testing.T, cacheId string, RestartOnRedirect bool, recompression bool, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
-			Path:             "/t/*",
-			Destination:      fmt.Sprintf("%s/$1", originServer.URL),
-			Internal:         false,
-			Recompression:    false,
-			CacheId:          cacheId,
-			FlattenRedirects: flattenRedirects,
-			ResponseHeaders:  responseHeaders,
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     recompression,
+			CacheId:           cacheId,
+			RestartOnRedirect: RestartOnRedirect,
+		},
+	}, sh.Logger)
+	if err != nil || rules == nil {
+		t.Fatal("Bad rules")
+	}
+
+	return rules
+}
+
+func rulesWithCacheIdRestartOnRedirectResponseHeaders(t *testing.T, cacheId string, RestartOnRedirect bool, responseHeaders map[string]string, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+	rules, err := proxy.NewRules([]proxy.RuleSource{
+		{
+			Path:              "/t/*",
+			Destination:       fmt.Sprintf("%s/$1", originServer.URL),
+			Internal:          false,
+			Recompression:     false,
+			CacheId:           cacheId,
+			RestartOnRedirect: RestartOnRedirect,
+			ResponseHeaders:   responseHeaders,
 		},
 	}, sh.Logger)
 	if err != nil || rules == nil {

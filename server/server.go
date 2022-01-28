@@ -72,19 +72,37 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
-			if alwaysInclude == nil {
-				alwaysInclude = &http.Header{}
-			}
-			shouldSkip := len(r.Header.Get("authorization")) > 0
+			r = preprocessHeaders(r, rf.RequestHeaders)
+			shouldSkip := shouldSkipCaching(r.Header, rf)
 			if len(rf.CacheId) == 0 && frf != nil {
 				rf = *frf
 			}
-			if shouldSkip || len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
-				reqres, err := router.RouteRequest(ctx, r, overrideURL, nil)
+			if alwaysInclude == nil {
+				alwaysInclude = &http.Header{}
+			}
+			if len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
+				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 				if err != nil {
 					writeError(*w, err)
 					return
 				}
+
+				if reqres.RedirectedURL != nil && rf.RestartOnRedirect {
+					if urlEquals(reqres.RedirectedURL, r.URL) {
+						err = usererror.CreateError(508, "Loop detected")
+						writeError(*w, err)
+						return
+					}
+					redirectedUrl := util.RedirectedURL(r, reqres.OriginalURL, reqres.RedirectedURL)
+					redirectedUrl.Scheme = reqres.OriginalURL.Scheme
+					rr := r.Clone(r.Context())
+					rr.URL = redirectedUrl
+					rr.Host = redirectedUrl.Host
+					rr.RequestURI = reqres.RedirectedURL.RequestURI()
+					cachingFunc(w, rr, nil, alwaysInclude, &rf, false)
+					return
+				}
+
 				for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
 					for _, hval := range hvals {
 						alwaysInclude.Set(hname, hval)
@@ -95,7 +113,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				return
 			}
 
-			keys := caching.KeysFromRequest(r)
+			keys := caching.KeysFromRequest(ruleDestinationRequest(r, *rf.Rule))
 			cr, key, err := cache.Get(ctx, rf.CacheId, rf.ForceRevalidate, skipRevalidate, keys, *w, logger)
 			if err != nil {
 				cache.Finish(key, logger)
@@ -158,7 +176,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			switch cr.Kind {
 			case caching.Found:
-				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
+				if rf.RestartOnRedirect && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
 						cache.Finish(key, logger)
@@ -175,6 +193,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					} else {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 					}
+				} else if alwaysInclude.Get(caching.HeaderRrrouterCacheStatus) == "pass" {
+					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				}
 				alwaysInclude.Set(headerAge, strconv.Itoa(int(cr.Age)))
 
@@ -211,7 +231,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if fatal {
 						cache.Finish(key, logger)
 					}
-					writeError(*w, err)
 				}
 				return
 			case caching.NotFoundReader, caching.RevalidatingReader:
@@ -235,7 +254,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					return
 				}
 
-				if rf.FlattenRedirects && util.IsRedirect(cr.Metadata.Status) {
+				if rf.RestartOnRedirect && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
 						writeError(*w, err)
@@ -265,6 +284,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				var errCleanup func()
 				defer cache.Finish(key, logger)
 
+				if shouldSkip {
+					cr.Writer.SetDiskWritesDisabled()
+				}
 				if rRange != nil {
 					r.Header.Del("range")
 				}
@@ -346,23 +368,27 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					} else {
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
 					}
+					if shouldSkip {
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+					}
 					alwaysInclude.Set(headerAge, "0")
+					clientWritesDisabled := false
 					if reqres.RedirectedURL != nil {
 						if urlEquals(reqres.RedirectedURL, r.URL) {
 							err = usererror.CreateError(508, "Loop detected")
 							writeError(*w, err)
 							return
 						}
-						redirectedUrl := util.RedirectedURL(r, reqres.RedirectedURL)
+						redirectedUrl := util.RedirectedURL(r, reqres.OriginalURL, reqres.RedirectedURL)
 						redirectedUrl.Scheme = reqres.OriginalURL.Scheme
-						redirectedUrl.Host = reqres.OriginalURL.Host
 						cr.Writer.SetRedirectedURL(redirectedUrl)
-						if rf.FlattenRedirects {
+						if rf.RestartOnRedirect {
+							cr.Writer.SetClientWritesDisabled()
+							clientWritesDisabled = true
 							rr := r.Clone(r.Context())
 							rr.URL = redirectedUrl
 							rr.Host = redirectedUrl.Host
 							rr.RequestURI = reqres.RedirectedURL.RequestURI()
-							cr.Writer.SetClientWritesDisabled()
 							cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
 						}
 					}
@@ -377,8 +403,17 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							}
 						}
 					}
-					writeBodyFunc = makeCachingWriteBody(rRange)
-					writer = cr.Writer
+					if shouldSkip {
+						if clientWritesDisabled {
+							return
+						}
+						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+						writeBodyFunc = writeBody
+						writer = *w
+					} else {
+						writeBodyFunc = makeCachingWriteBody(rRange)
+						writer = cr.Writer
+					}
 					errCleanup = func() {
 						logger.Infof("errCleanup: %v / %v", key, key.FsName())
 						_ = cr.Writer.Delete()
@@ -391,6 +426,35 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		}
 		cachingFunc(&ow, or, nil, nil, nil, false)
 	}
+}
+
+func ruleDestinationRequest(r *http.Request, rule proxy.Rule) *http.Request {
+	return rule.OverrideOnRequest(r.Clone(context.Background()))
+}
+
+func preprocessHeaders(r *http.Request, overrides map[string]*string) *http.Request {
+	for hname, hval := range overrides {
+		if hval == nil {
+			r.Header.Del(hname)
+		} else {
+			r.Header.Set(hname, *hval)
+		}
+	}
+
+	return r
+}
+
+func shouldSkipCaching(h http.Header, rf proxy.RoutingFlavors) bool {
+	if len(h.Get("authorization")) > 0 {
+		if v, ok := rf.RequestHeaders["authorization"]; ok {
+			if v == nil { // Header override is deletion of the `authorization` header
+				return false
+			}
+		}
+		return true
+	}
+
+	return false
 }
 
 func urlEquals(u1 *url.URL, u2 *url.URL) bool {
@@ -416,7 +480,7 @@ func requestWithRedirect(r *http.Request, location string) (*http.Request, error
 		return nil, err
 	}
 	rr := r.Clone(r.Context())
-	rr.URL = util.RedirectedURL(rr, locationUrl)
+	rr.URL = util.RedirectedURL(rr, rr.URL, locationUrl)
 	rr.Host = rr.URL.Host
 	return rr, nil
 }
@@ -633,6 +697,9 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 			}
 		}
 		if !ok {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			panic(fmt.Sprintf("Caching writer missing"))
 		}
 
@@ -641,20 +708,29 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 		}
 
 		fd, err := crw.WrittenFile()
+		if err != nil {
+			if errCleanup != nil {
+				errCleanup()
+			}
+			return err
+		}
 		if fd != nil {
 			defer fd.Close()
-		}
-		if err != nil {
-			return err
 		}
 
 		fi, err := fd.Stat()
 		if err != nil {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			return err
 		}
 
 		_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rr, logctx)
 		if err != nil {
+			if errCleanup != nil {
+				errCleanup()
+			}
 			return err
 		}
 

@@ -459,7 +459,7 @@ func (k Key) HasFullOrigin() bool {
 	return k.opaqueOrigin == false && len(k.storedHeaders.Get("origin")) > 0
 }
 
-var keyClientHeaders = []string{"host", "accept-encoding"}
+var keyClientHeaders = []string{"host", "accept-encoding", "authorization"}
 var HeaderRrrouterCacheStatus = "richie-edge-cache"
 
 type cacheConfig struct {
@@ -574,6 +574,7 @@ type CachingResponseWriter interface {
 	ReadFrom(r io.Reader) (n int64, err error)
 	SetClientWritesDisabled()
 	GetClientWritesDisabled() bool
+	SetDiskWritesDisabled()
 	SetRedirectedURL(*url.URL)
 	SetRevalidatedAndClose() error
 	SetRevalidateErroredAndClose(bool) error
@@ -582,6 +583,7 @@ type CachingResponseWriter interface {
 type cachingResponseWriter struct {
 	clientWriter         http.ResponseWriter
 	clientWritesDisabled bool
+	diskWritesDisabled   bool
 	cacheWriter          CacheWriter
 	log                  *apexlog.Logger
 }
@@ -591,6 +593,9 @@ func (crw *cachingResponseWriter) Header() http.Header {
 }
 
 func (crw *cachingResponseWriter) Write(ba []byte) (int, error) {
+	if crw.diskWritesDisabled {
+		return len(ba), nil
+	}
 	return crw.cacheWriter.Write(ba)
 }
 
@@ -609,7 +614,7 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 			cleanedHeaders.Set("content-length", cl)
 		}
 	}
-	if crw.cacheWriter != nil {
+	if crw.cacheWriter != nil && !crw.diskWritesDisabled {
 		if statusCode == 200 || IsCacheableError(statusCode) || util.IsRedirect(statusCode) {
 			if cleanedHeaders != nil {
 				crw.cacheWriter.WriteHeader(statusCode, cleanedHeaders)
@@ -621,18 +626,30 @@ func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
 }
 
 func (crw *cachingResponseWriter) Flush() {
+	if crw.diskWritesDisabled {
+		return
+	}
 	crw.cacheWriter.Flush()
 }
 
 func (crw *cachingResponseWriter) Close() error {
+	if crw.diskWritesDisabled {
+		return nil
+	}
 	return crw.cacheWriter.Close()
 }
 
 func (crw *cachingResponseWriter) WrittenFile() (*os.File, error) {
+	if crw.diskWritesDisabled {
+		return nil, nil
+	}
 	return crw.cacheWriter.WrittenFile()
 }
 
 func (crw *cachingResponseWriter) ChangeKey(k Key) error {
+	if crw.diskWritesDisabled {
+		return nil
+	}
 	return crw.cacheWriter.ChangeKey(k)
 }
 
@@ -648,21 +665,37 @@ func (crw *cachingResponseWriter) GetClientWritesDisabled() bool {
 	return crw.clientWritesDisabled
 }
 
+func (crw *cachingResponseWriter) SetDiskWritesDisabled() {
+	crw.diskWritesDisabled = true
+}
+
 func (crw *cachingResponseWriter) SetRedirectedURL(redir *url.URL) {
+	if crw.diskWritesDisabled {
+		return
+	}
 	crw.cacheWriter.SetRedirectedURL(redir)
 }
 
 func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
+	if crw.diskWritesDisabled {
+		return nil
+	}
 	crw.cacheWriter.SetRevalidated()
 	return crw.cacheWriter.Close()
 }
 
 func (crw *cachingResponseWriter) SetRevalidateErroredAndClose(canStaleIfError bool) error {
+	if crw.diskWritesDisabled {
+		return nil
+	}
 	crw.cacheWriter.SetRevalidateErrored(canStaleIfError)
 	return crw.cacheWriter.Close()
 }
 
 func (crw *cachingResponseWriter) Delete() error {
+	if crw.diskWritesDisabled {
+		return nil
+	}
 	err := crw.cacheWriter.Delete()
 	if err != nil {
 		crw.log.WithField("error", err).Error("Could not clean up stray file after error")

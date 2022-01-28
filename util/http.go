@@ -15,15 +15,15 @@ func IsRedirect(statusCode int) bool {
 	return false
 }
 
-func RedirectedURL(orig *http.Request, redir *url.URL) *url.URL {
+func RedirectedURL(orig *http.Request, requestedUrl *url.URL, redir *url.URL) *url.URL {
 	if len(redir.Scheme) > 0 {
 		return redir
 	} else {
 		var host string
-		if len(orig.Host) > 0 {
+		if len(requestedUrl.Host) > 0 {
+			host = requestedUrl.Host
+		} else if len(orig.Host) > 0 {
 			host = orig.Host
-		} else {
-			host = orig.URL.Host
 		}
 		if strings.Index(redir.Path, "/") == 0 {
 			newUrl := &url.URL{

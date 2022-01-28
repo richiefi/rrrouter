@@ -37,21 +37,22 @@ var (
 
 // RuleSource is a source of rules, e.g. a JSON file
 type RuleSource struct {
-	Enabled          *bool             `json:"enabled"`
-	Methods          []string          `json:"methods"`
-	Scheme           string            `json:"scheme"`
-	Host             string            `json:"host"`
-	Path             string            `json:"path"`
-	Destination      string            `json:"destination"`
-	Internal         bool              `json:"internal"`
-	Type             *string           `json:"type"`
-	HostHeader       string            `json:"hostheader"`
-	Recompression    bool              `json:"recompression"`
-	CacheId          string            `json:"cache"`
-	ForceRevalidate  int               `json:"force_revalidate"`
-	ResponseHeaders  map[string]string `json:"response_headers"`
-	FlattenRedirects bool              `json:"flatten_redirects"`
-	RetryRule        *RuleSource       `json:"retry_rule"`
+	Enabled           *bool                  `json:"enabled"`
+	Methods           []string               `json:"methods"`
+	Scheme            string                 `json:"scheme"`
+	Host              string                 `json:"host"`
+	Path              string                 `json:"path"`
+	Destination       string                 `json:"destination"`
+	Internal          bool                   `json:"internal"`
+	Type              *string                `json:"type"`
+	HostHeader        string                 `json:"hostheader"`
+	Recompression     bool                   `json:"recompression"`
+	CacheId           string                 `json:"cache"`
+	ForceRevalidate   int                    `json:"force_revalidate"`
+	RequestHeaders    map[string]interface{} `json:"request_headers"`
+	ResponseHeaders   map[string]string      `json:"response_headers"`
+	RestartOnRedirect bool                   `json:"restart_on_redirect"`
+	RetryRule         *RuleSource            `json:"retry_rule"`
 }
 
 type rulesConfig struct {
@@ -113,15 +114,25 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 		if rsrc.ForceRevalidate > 0 {
 			forceRevalidate = rsrc.ForceRevalidate
 		}
+		requestHeaders := make(map[string]*string, 0)
+		if len(rsrc.RequestHeaders) > 0 {
+			for k, v := range rsrc.RequestHeaders {
+				if v == nil {
+					requestHeaders[strings.ToLower(strings.TrimSpace(k))] = nil
+				} else if val, ok := v.(string); ok {
+					requestHeaders[strings.ToLower(strings.TrimSpace(k))] = &val
+				}
+			}
+		}
 		responseHeaders := make(map[string]string, 0)
 		if len(rsrc.ResponseHeaders) > 0 {
 			for k, v := range rsrc.ResponseHeaders {
 				responseHeaders[strings.TrimSpace(k)] = strings.TrimSpace(v)
 			}
 		}
-		flattenRedirects := false
-		if rsrc.FlattenRedirects {
-			flattenRedirects = true
+		restartOnRedirect := false
+		if rsrc.RestartOnRedirect {
+			restartOnRedirect = true
 		}
 		var retryRule *Rule
 		if rsrc.RetryRule != nil {
@@ -133,7 +144,7 @@ func NewRules(ruleSources []RuleSource, logger *apexlog.Logger) (*Rules, error) 
 				retryRule = rRules.rules[0]
 			}
 		}
-		rule, err := NewRule(enabled, rsrc.Scheme, rsrc.Host, rsrc.Path, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, responseHeaders, flattenRedirects, retryRule)
+		rule, err := NewRule(enabled, rsrc.Scheme, rsrc.Host, rsrc.Path, rsrc.Destination, rsrc.Internal, methodMap, ruleType, hostHeader, recompression, cacheId, forceRevalidate, requestHeaders, responseHeaders, restartOnRedirect, retryRule)
 		if err != nil {
 			return nil, err
 		}
