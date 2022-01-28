@@ -214,11 +214,7 @@ func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlM
 	}
 	if requestsResult.copyRequest != nil {
 		var copyResp *http.Response
-		if requestsResult.restartOnRedirect && len(requestsResult.cacheId) == 0 {
-			copyResp, _, err = r.follow(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
-		} else {
-			copyResp, err = r.performRequest(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
-		}
+		copyResp, err = r.performRequest(ctx, requestsResult.copyRequest, bodyData, retryRule == nil)
 		if err != nil {
 			logctx.WithError(err).Error("Error performing copy request")
 		} else {
@@ -230,18 +226,14 @@ func (r *router) routeRequest(ctx context.Context, ch chan rrErr, urlMatch *urlM
 	var mainResp *http.Response
 	var redirectedURL *url.URL
 	if requestsResult.mainRequest != nil {
-		if requestsResult.restartOnRedirect && len(requestsResult.cacheId) == 0 {
-			mainResp, redirectedURL, err = r.follow(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
-		} else {
-			mainResp, err = r.performRequest(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
-			if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
-				redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
-				if err != nil {
-					logctx.WithError(err).Errorf("Error parsing redirection")
-					mainResp.Body.Close()
-					ch <- rrErr{nil, err}
-					return
-				}
+		mainResp, err = r.performRequest(ctx, requestsResult.mainRequest, bodyData, retryRule == nil)
+		if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
+			redirectedURL, err = url.Parse(mainResp.Header.Get("location"))
+			if err != nil {
+				logctx.WithError(err).Errorf("Error parsing redirection")
+				mainResp.Body.Close()
+				ch <- rrErr{nil, err}
+				return
 			}
 		}
 		if (retryRule != nil && err != nil) || (retryRule != nil && mainResp != nil && is4xxError(mainResp.StatusCode)) {
