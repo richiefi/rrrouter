@@ -99,7 +99,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					rr.URL = redirectedUrl
 					rr.Host = redirectedUrl.Host
 					rr.RequestURI = reqres.RedirectedURL.RequestURI()
-					cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
+					cachingFunc(w, rr, nil, alwaysInclude, &rf, false)
 					return
 				}
 
