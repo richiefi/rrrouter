@@ -360,7 +360,28 @@ func (s *storage) Get(ctx context.Context, keys []Key) (*os.File, StorageMetadat
 		sm, err := getStorageMetadata(ctx, f, metadataXAttrName)
 		if err != nil {
 			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
-			err := os.Remove(fp)
+			err = os.Remove(fp)
+			if err != nil {
+				s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
+				return nil, StorageMetadata{}, key, err
+			}
+			continue
+		}
+		if cl := sm.ResponseHeader.Get("content-length"); len(cl) > 0 {
+			if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
+				if int64(contentLength) != sm.FdSize {
+					s.logger.Error(fmt.Sprintf("Size on disk %v did not match HTTP header Content-Length %v. Deleting stored file.", sm.FdSize, contentLength))
+					err = os.Remove(fp)
+					if err != nil {
+						s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
+						return nil, StorageMetadata{}, key, err
+					}
+					continue
+				}
+			}
+		} else if sm.FdSize != sm.Size {
+			s.logger.Error(fmt.Sprintf("Size on disk %v did not match size written to client %v. Deleting stored file.", sm.FdSize, sm.Size))
+			err = os.Remove(fp)
 			if err != nil {
 				s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
 				return nil, StorageMetadata{}, key, err
