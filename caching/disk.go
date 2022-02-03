@@ -929,26 +929,37 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 			sw.notify()
 			return
 		}
-		fd, err := os.Create(sw.path)
-		if err != nil {
-			exists, _ := pathExists(sw.path)
-			if !exists {
-				sw.log.Errorf("Could not create file at path %v: %v", sw.path, err)
-				sw.errored = true
+		var fd *os.File
+		fd, exists, err := createIfNotExists(sw.path)
+		if exists {
+			sw.log.Infof("File already exists for key %v: %v", sw.key, sw.path)
+			fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
+			if err != nil {
+				sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
+				sw.error = err
 				sw.notify()
 				return
-			} else {
-				fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
-				if err != nil {
-					sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
-					sw.errored = true
-					sw.notify()
-					return
-				}
 			}
 		}
 		sw.fd = fd
 	}
+}
+
+func createIfNotExists(name string) (*os.File, bool, error) {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			var fd *os.File
+			fd, err = os.Create(name)
+			if err != nil {
+				return nil, false, err
+			}
+			return fd, false, nil
+		} else {
+			return nil, false, err
+		}
+	}
+
+	return nil, true, nil
 }
 
 func createAllSubdirs(dir string) error {
