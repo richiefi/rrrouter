@@ -953,7 +953,7 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		var fd *os.File
 		fd, exists, err := createIfNotExists(sw.path)
 		if exists {
-			sw.log.Infof("File already exists for key %v: %v", sw.key, sw.path)
+			//sw.log.Infof("File already exists for key %v: %v", sw.key, sw.path)
 			fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
 			if err != nil {
 				sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
