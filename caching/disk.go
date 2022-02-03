@@ -879,7 +879,7 @@ type storageWriter struct {
 	root              string
 	path              string
 	invalidated       bool
-	errored           bool
+	error             error
 	deleted           bool
 	closeFinisher     func(name string, size int64)
 	closeNotifier     *chan KeyInfo
@@ -925,7 +925,7 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		err := createAllSubdirs(filepath.Dir(sw.path))
 		if err != nil {
 			sw.log.Errorf("Could not create directory for path: %v", sw.path)
-			sw.errored = true
+			sw.error = err
 			sw.notify()
 			return
 		}
@@ -963,7 +963,7 @@ func createAllSubdirs(dir string) error {
 func (sw *storageWriter) Write(p []byte) (n int, err error) {
 	if sw.invalidated {
 		return n, nil
-	} else if sw.errored {
+	} else if sw.error != nil {
 		return 0, errors.New(fmt.Sprintf("Write called for errored %v", sw.key.FsName()))
 	}
 
@@ -980,7 +980,8 @@ func (sw *storageWriter) Close() error {
 	if sw.closed == true {
 		sw.log.Warnf("Tried to close an already closed storageWriter: %v", sw.key.FsName())
 		return nil
-	} else if sw.errored {
+	} else if sw.error != nil {
+		sw.Delete()
 		return errors.New("Close called for errored writer")
 	} else if sw.revalidateErrored {
 		sw.finishAndNotify()
@@ -1024,7 +1025,7 @@ func (sw *storageWriter) Close() error {
 	}
 
 	if sw.invalidated {
-		err := sw.Delete()
+		err = sw.Delete()
 		if err != nil {
 			sw.log.Warnf("Could not remove invalidated file %v: %v", sw.path, err)
 		}
@@ -1112,6 +1113,8 @@ func (sw *storageWriter) notify() {
 func (sw *storageWriter) WrittenFile() (*os.File, error) {
 	if sw.invalidated {
 		return nil, nil
+	} else if sw.error != nil {
+		return nil, sw.error
 	}
 
 	fd, err := os.Open(sw.path)
