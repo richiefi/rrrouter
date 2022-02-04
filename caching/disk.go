@@ -325,6 +325,9 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan KeyInf
 		path:           fp,
 		wasRevalidated: revalidate,
 		closeFinisher: func(name string, size int64) {
+			if revalidate {
+				return
+			}
 			ai := accessedItem{
 				accessTime:    accessTime(time.Now().Unix() - s.startedAt),
 				sizeKilobytes: uint32(size / 1024),
