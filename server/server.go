@@ -728,9 +728,6 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 
 		_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rr, logctx)
 		if err != nil {
-			if errCleanup != nil {
-				errCleanup()
-			}
 			return err
 		}
 
