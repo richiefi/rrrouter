@@ -1112,9 +1112,21 @@ func (sw *storageWriter) Close() error {
 	}
 
 	if sw.key.method != "HEAD" && sizeOnDisk == 0 && sw.writtenStatus != 204 && !util.IsRedirect(sw.writtenStatus) {
-		msg := fmt.Sprintf("Size is 0. Deleting stored file at %v, key: %v", sw.fd.Name(), sw.key)
+		msg := fmt.Sprintf("Size is 0. Deleting stored file")
 		sw.log.Errorf(msg)
-		sentry.CaptureMessage(msg)
+		sentry.WithScope(func(s *sentry.Scope) {
+			s.SetContext("locals", map[string]interface{}{
+				"url":                  sw.key.host + sw.key.path,
+				"method":               sw.key.method,
+				"ua":                   sw.key.originalHeaders.Get("user-agent"),
+				"sw.key.storedHeaders": fmt.Sprint(sw.key.storedHeaders),
+				"sw.writtenStatus":     sw.writtenStatus,
+				"sw.writtenSize":       sw.writtenSize,
+				"sw.wasRevalidated":    sw.wasRevalidated,
+				"sw.responseHeader":    fmt.Sprint(sw.responseHeader),
+			})
+			sentry.CaptureMessage(msg)
+		})
 		sw.Delete()
 		return errors.New("Size mismatch")
 	}
