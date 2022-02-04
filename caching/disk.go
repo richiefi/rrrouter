@@ -1096,7 +1096,7 @@ func (sw *storageWriter) Close() error {
 
 	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
 		if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
-			if int64(contentLength) != sw.writtenSize {
+			if int64(contentLength) != sw.writtenSize || int64(contentLength) != sizeOnDisk {
 				sw.log.Error(fmt.Sprintf("Written size %v did not match Content-Length header size %v. Deleting stored file.\n", sw.writtenSize, contentLength))
 				sw.Delete()
 				return errors.New(fmt.Sprintf("Size mismatch"))
@@ -1104,7 +1104,7 @@ func (sw *storageWriter) Close() error {
 		}
 	} else {
 		if sizeOnDisk != metadata.Size {
-			sw.log.Errorf("Size has changed for file %v: %v vs. %v", sw.fd.Name(), sizeOnDisk, metadata.Size)
+			sw.log.Errorf("Size has changed for file %v: %v vs. %v. wasRevalidated: %v", sw.fd.Name(), sizeOnDisk, metadata.Size, sw.wasRevalidated)
 			sw.Delete()
 			return errors.New("Size mismatch")
 		}
