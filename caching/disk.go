@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	apexlog "github.com/apex/log"
+	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 	"github.com/pkg/xattr"
 	mets "github.com/richiefi/rrrouter/metrics"
@@ -1108,6 +1109,14 @@ func (sw *storageWriter) Close() error {
 			sw.Delete()
 			return errors.New("Size mismatch")
 		}
+	}
+
+	if sw.key.method != "HEAD" && sizeOnDisk == 0 && sw.writtenStatus != 204 && !util.IsRedirect(sw.writtenStatus) {
+		msg := fmt.Sprintf("Size is 0. Deleting stored file at %v, key: %v", sw.fd.Name(), sw.key)
+		sw.log.Errorf(msg)
+		sentry.CaptureMessage(msg)
+		sw.Delete()
+		return errors.New("Size mismatch")
 	}
 
 	esm := encodeStorageMetadata(metadata)
