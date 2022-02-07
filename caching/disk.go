@@ -1119,6 +1119,7 @@ func (sw *storageWriter) Close() error {
 				"url":                  sw.key.host + sw.key.path,
 				"method":               sw.key.method,
 				"ua":                   sw.key.originalHeaders.Get("user-agent"),
+				"file path":            sw.key.FsName(),
 				"sw.key.storedHeaders": fmt.Sprint(sw.key.storedHeaders),
 				"sw.writtenStatus":     sw.writtenStatus,
 				"sw.writtenSize":       sw.writtenSize,
