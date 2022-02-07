@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	apexlog "github.com/apex/log"
+	"github.com/getsentry/sentry-go"
 	"github.com/pkg/errors"
 	"github.com/pkg/xattr"
 	mets "github.com/richiefi/rrrouter/metrics"
@@ -325,6 +326,9 @@ func (s *storage) GetWriter(key Key, revalidate bool, closeNotifier *chan KeyInf
 		path:           fp,
 		wasRevalidated: revalidate,
 		closeFinisher: func(name string, size int64) {
+			if revalidate {
+				return
+			}
 			ai := accessedItem{
 				accessTime:    accessTime(time.Now().Unix() - s.startedAt),
 				sizeKilobytes: uint32(size / 1024),
@@ -360,7 +364,28 @@ func (s *storage) Get(ctx context.Context, keys []Key) (*os.File, StorageMetadat
 		sm, err := getStorageMetadata(ctx, f, metadataXAttrName)
 		if err != nil {
 			s.logger.Errorf("Failed to get metadata from %v: %v\n", fp, err)
-			err := os.Remove(fp)
+			err = os.Remove(fp)
+			if err != nil {
+				s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
+				return nil, StorageMetadata{}, key, err
+			}
+			continue
+		}
+		if cl := sm.ResponseHeader.Get("content-length"); len(cl) > 0 {
+			if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
+				if int64(contentLength) != sm.FdSize {
+					s.logger.Error(fmt.Sprintf("Size on disk %v did not match HTTP header Content-Length %v. Deleting stored file.", sm.FdSize, contentLength))
+					err = os.Remove(fp)
+					if err != nil {
+						s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
+						return nil, StorageMetadata{}, key, err
+					}
+					continue
+				}
+			}
+		} else if sm.FdSize != sm.Size {
+			s.logger.Error(fmt.Sprintf("Size on disk %v did not match size written to client %v. Deleting stored file.", sm.FdSize, sm.Size))
+			err = os.Remove(fp)
 			if err != nil {
 				s.logger.Errorf("Could not remove errored path %v: %v", fp, err)
 				return nil, StorageMetadata{}, key, err
@@ -879,7 +904,7 @@ type storageWriter struct {
 	root              string
 	path              string
 	invalidated       bool
-	errored           bool
+	error             error
 	deleted           bool
 	closeFinisher     func(name string, size int64)
 	closeNotifier     *chan KeyInfo
@@ -925,30 +950,41 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		err := createAllSubdirs(filepath.Dir(sw.path))
 		if err != nil {
 			sw.log.Errorf("Could not create directory for path: %v", sw.path)
-			sw.errored = true
+			sw.error = err
 			sw.notify()
 			return
 		}
-		fd, err := os.Create(sw.path)
-		if err != nil {
-			exists, _ := pathExists(sw.path)
-			if !exists {
-				sw.log.Errorf("Could not create file at path %v: %v", sw.path, err)
-				sw.errored = true
+		var fd *os.File
+		fd, exists, err := createIfNotExists(sw.path)
+		if exists {
+			//sw.log.Infof("File already exists for key %v: %v", sw.key, sw.path)
+			fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
+			if err != nil {
+				sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
+				sw.error = err
 				sw.notify()
 				return
-			} else {
-				fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
-				if err != nil {
-					sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
-					sw.errored = true
-					sw.notify()
-					return
-				}
 			}
 		}
 		sw.fd = fd
 	}
+}
+
+func createIfNotExists(name string) (*os.File, bool, error) {
+	if _, err := os.Stat(name); err != nil {
+		if os.IsNotExist(err) {
+			var fd *os.File
+			fd, err = os.Create(name)
+			if err != nil {
+				return nil, false, err
+			}
+			return fd, false, nil
+		} else {
+			return nil, false, err
+		}
+	}
+
+	return nil, true, nil
 }
 
 func createAllSubdirs(dir string) error {
@@ -963,7 +999,7 @@ func createAllSubdirs(dir string) error {
 func (sw *storageWriter) Write(p []byte) (n int, err error) {
 	if sw.invalidated {
 		return n, nil
-	} else if sw.errored {
+	} else if sw.error != nil {
 		return 0, errors.New(fmt.Sprintf("Write called for errored %v", sw.key.FsName()))
 	}
 
@@ -980,7 +1016,8 @@ func (sw *storageWriter) Close() error {
 	if sw.closed == true {
 		sw.log.Warnf("Tried to close an already closed storageWriter: %v", sw.key.FsName())
 		return nil
-	} else if sw.errored {
+	} else if sw.error != nil {
+		sw.Delete()
 		return errors.New("Close called for errored writer")
 	} else if sw.revalidateErrored {
 		sw.finishAndNotify()
@@ -1024,7 +1061,7 @@ func (sw *storageWriter) Close() error {
 	}
 
 	if sw.invalidated {
-		err := sw.Delete()
+		err = sw.Delete()
 		if err != nil {
 			sw.log.Warnf("Could not remove invalidated file %v: %v", sw.path, err)
 		}
@@ -1060,7 +1097,7 @@ func (sw *storageWriter) Close() error {
 
 	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
 		if contentLength, err := strconv.Atoi(cl); err != nil && contentLength > 0 {
-			if int64(contentLength) != sw.writtenSize {
+			if int64(contentLength) != sw.writtenSize || int64(contentLength) != sizeOnDisk {
 				sw.log.Error(fmt.Sprintf("Written size %v did not match Content-Length header size %v. Deleting stored file.\n", sw.writtenSize, contentLength))
 				sw.Delete()
 				return errors.New(fmt.Sprintf("Size mismatch"))
@@ -1068,10 +1105,30 @@ func (sw *storageWriter) Close() error {
 		}
 	} else {
 		if sizeOnDisk != metadata.Size {
-			sw.log.Errorf("Size has changed for file %v: %v vs. %v", sw.fd.Name(), sizeOnDisk, metadata.Size)
+			sw.log.Errorf("Size has changed for file %v: %v vs. %v. wasRevalidated: %v", sw.fd.Name(), sizeOnDisk, metadata.Size, sw.wasRevalidated)
 			sw.Delete()
 			return errors.New("Size mismatch")
 		}
+	}
+
+	if sw.key.method != "HEAD" && sizeOnDisk == 0 && sw.writtenStatus != 204 && IsCacheableError(sw.writtenStatus) && !util.IsRedirect(sw.writtenStatus) {
+		msg := fmt.Sprintf("Size is 0. Deleting stored file")
+		sw.log.Errorf(msg)
+		sentry.WithScope(func(s *sentry.Scope) {
+			s.SetContext("locals", map[string]interface{}{
+				"url":                  sw.key.host + sw.key.path,
+				"method":               sw.key.method,
+				"ua":                   sw.key.originalHeaders.Get("user-agent"),
+				"sw.key.storedHeaders": fmt.Sprint(sw.key.storedHeaders),
+				"sw.writtenStatus":     sw.writtenStatus,
+				"sw.writtenSize":       sw.writtenSize,
+				"sw.wasRevalidated":    sw.wasRevalidated,
+				"sw.responseHeader":    fmt.Sprint(sw.responseHeader),
+			})
+			sentry.CaptureMessage(msg)
+		})
+		sw.Delete()
+		return errors.New("Size mismatch")
 	}
 
 	esm := encodeStorageMetadata(metadata)
@@ -1112,6 +1169,8 @@ func (sw *storageWriter) notify() {
 func (sw *storageWriter) WrittenFile() (*os.File, error) {
 	if sw.invalidated {
 		return nil, nil
+	} else if sw.error != nil {
+		return nil, sw.error
 	}
 
 	fd, err := os.Open(sw.path)
