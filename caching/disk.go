@@ -1111,7 +1111,7 @@ func (sw *storageWriter) Close() error {
 		}
 	}
 
-	if sw.key.method != "HEAD" && sizeOnDisk == 0 && sw.writtenStatus != 204 && IsCacheableError(sw.writtenStatus) && !util.IsRedirect(sw.writtenStatus) {
+	if sw.key.method != "HEAD" && sizeOnDisk == 0 && sw.writtenStatus != 204 && !IsCacheableError(sw.writtenStatus) && !util.IsRedirect(sw.writtenStatus) {
 		msg := fmt.Sprintf("Size is 0. Deleting stored file")
 		sw.log.Errorf(msg)
 		sentry.WithScope(func(s *sentry.Scope) {
