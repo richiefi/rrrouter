@@ -903,6 +903,7 @@ type storageWriter struct {
 	oldKey            *Key
 	root              string
 	path              string
+	originalPath      string
 	invalidated       bool
 	error             error
 	deleted           bool
@@ -958,9 +959,11 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		fd, exists, err := createIfNotExists(sw.path)
 		if exists {
 			//sw.log.Infof("File already exists for key %v: %v", sw.key, sw.path)
-			fd, err = os.OpenFile(sw.path, os.O_RDWR, 0)
+			sw.originalPath = sw.path
+			sw.path = sw.path + ".tmp"
+			fd, err = os.Create(sw.path)
 			if err != nil {
-				sw.log.Errorf("Can't open existing file for reading and writing: %v", sw.path)
+				sw.log.Errorf("Can't open path for writing: %v", sw.path)
 				sw.error = err
 				sw.notify()
 				return
@@ -1137,6 +1140,16 @@ func (sw *storageWriter) Close() error {
 	if err != nil {
 		sw.Delete()
 		return err
+	}
+
+	if len(sw.originalPath) > 0 {
+		err = os.Rename(sw.path, sw.originalPath)
+		if err != nil {
+			sw.log.Errorf("Could not rename temporary file %v: %v", sw.fd.Name(), err)
+			sw.Delete()
+			return err
+		}
+		sw.path = sw.originalPath
 	}
 
 	sw.finishAndNotify()
