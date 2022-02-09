@@ -1128,6 +1128,7 @@ func (sw *storageWriter) Close() error {
 				"sw.writtenSize":       sw.writtenSize,
 				"sw.wasRevalidated":    sw.wasRevalidated,
 				"sw.responseHeader":    fmt.Sprint(sw.responseHeader),
+				"metadata":             fmt.Sprint(metadata),
 			})
 			sentry.CaptureMessage(msg)
 		})
