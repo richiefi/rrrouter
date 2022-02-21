@@ -2019,6 +2019,79 @@ func TestCache_one_writer_two_readers(t *testing.T) {
 	require.Equal(t, 1, timesOriginHit)
 }
 
+func TestCache_writer_times_out_and_one_reader_becomes_writer(t *testing.T) {
+
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+	hdrs = map[string]string{}
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		if timesOriginHit == 1 {
+			time.Sleep(time.Second * 1) // Wait with the writer and let the client time out in the meantime
+		}
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte("ab"))
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheId(t, "disk1", originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	wg := sync.WaitGroup{}
+	edgeCacheStatusesChan := make(chan string, 3)
+	wg.Add(3)
+	for i := 0; i < 3; i++ {
+		go func(n int) {
+			to := 1500
+			if n == 0 {
+				to = 500
+			} else {
+				time.Sleep(time.Millisecond * 200)
+			}
+			resp := sh.URLQueryWithBodyTimeout("GET", "/t/asdf", listener.URL, url.Values{}, http.Header{}, nil, to)
+			if resp == nil {
+				edgeCacheStatusesChan <- "timeout"
+				wg.Done()
+				return
+			}
+			defer resp.Body.Close()
+			body := sh.readBody(resp)
+			require.Equal(t, []byte("ab"), body)
+			edgeCacheStatusesChan <- resp.Header.Get("richie-edge-cache")
+			wg.Done()
+		}(i)
+	}
+	wg.Wait()
+
+	miss := 0
+	hit := 0
+	timeout := 0
+	for i := 0; i < 3; i++ {
+		s := <-edgeCacheStatusesChan
+		if s == "hit" {
+			hit += 1
+		} else if s == "miss" {
+			miss += 1
+		} else if s == "timeout" {
+			timeout += 1
+		}
+	}
+	require.Equal(t, 1, timeout)
+	require.Equal(t, 0, miss)
+	require.Equal(t, 2, hit)
+	require.Equal(t, 1, timesOriginHit)
+}
+
 func TestCache_entry_expires_and_is_revalidated_with_multiple_requests_waiting(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
@@ -2208,6 +2281,10 @@ func (c *testCache) Get(ctx context.Context, s string, ri int, skipRevalidate bo
 	}
 
 	return c.get(s, keys, w, l)
+}
+
+func (c *testCache) Finish(caching.Key, *apexlog.Logger) {
+
 }
 
 func (c *testCache) HasStorage(id string) bool {
