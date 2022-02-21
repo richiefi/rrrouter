@@ -5,6 +5,7 @@ package integrationtest
 import (
 	"io"
 	"io/ioutil"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/http/httputil"
@@ -12,6 +13,7 @@ import (
 	"os"
 	"strings"
 	"testing"
+	"time"
 
 	"github.com/richiefi/rrrouter/config"
 	"github.com/richiefi/rrrouter/proxy"
@@ -118,6 +120,10 @@ func (sh *ServerHelper) getURLQueryWithBody(path string, testServerURL string, q
 }
 
 func (sh *ServerHelper) URLQueryWithBody(method string, path string, testServerURL string, query url.Values, header http.Header, body io.ReadCloser) *http.Response {
+	return sh.URLQueryWithBodyTimeout(method, path, testServerURL, query, header, body, 0)
+}
+
+func (sh *ServerHelper) URLQueryWithBodyTimeout(method string, path string, testServerURL string, query url.Values, header http.Header, body io.ReadCloser, toms int) *http.Response {
 	urlstr := testServerURL + path
 	if len(query) > 0 {
 		urlstr += "?" + query.Encode()
@@ -143,8 +149,27 @@ func (sh *ServerHelper) URLQueryWithBody(method string, path string, testServerU
 		sh.Test.Fatal("Error dumping request:", err)
 	}
 	sh.Test.Log("Sending request:", string(reqdump))
-	resp, err := http.DefaultTransport.RoundTrip(req)
-	if err != nil {
+	var timeout time.Duration
+	if toms != 0 {
+		timeout = time.Duration(toms) * time.Millisecond
+	} else {
+		timeout = 30 * time.Second
+	}
+	transport := &http.Transport{
+		Proxy: http.ProxyFromEnvironment,
+		DialContext: (&net.Dialer{
+			Timeout:   timeout,
+			KeepAlive: timeout,
+		}).DialContext,
+		ResponseHeaderTimeout: timeout,
+		ForceAttemptHTTP2:     true,
+		MaxIdleConns:          100,
+		IdleConnTimeout:       90 * time.Second,
+		TLSHandshakeTimeout:   10 * time.Second,
+		ExpectContinueTimeout: 1 * time.Second,
+	}
+	resp, err := transport.RoundTrip(req)
+	if err != nil && toms == 0 {
 		sh.Test.Fatalf("Error GETting %s: %s", path, err.Error())
 	}
 	return resp
