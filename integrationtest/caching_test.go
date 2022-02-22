@@ -568,7 +568,7 @@ func TestCache_forced_revalidate_interval(t *testing.T) {
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 1, timesOriginHit)
 
-	now = now.Add(time.Second * 10)
+	now = now.Add(time.Second * 15)
 	hdrs = map[string]string{"expires": now.Add(time.Minute * 1).Format(time.RFC1123)}
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
@@ -907,7 +907,7 @@ func TestCache_item_cached_then_cache_control_max_age_passed(t *testing.T) {
 	//require.Equal(t, true, <-closeChan)
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 
-	now = now.Add(time.Minute * 1)
+	now = now.Add(time.Second * 70)
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
@@ -956,7 +956,7 @@ func TestCache_item_cached_then_cache_control_smax_age_passed(t *testing.T) {
 	require.Equal(t, 1, timesOriginHit)
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 
-	now = now.Add(time.Minute * 1)
+	now = now.Add(time.Second * 70)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
@@ -1095,7 +1095,7 @@ func TestCache_stale_if_error_used(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	age, err = strconv.Atoi(resp.Header.Get("age"))
 	require.Nil(t, err)
-	require.True(t, age >= 120 && age <= 121)
+	require.True(t, age >= 110 && age <= 130)
 	require.Equal(t, "stale", resp.Header.Get("richie-edge-cache"))
 
 	now = now.Add(time.Second * 30)
@@ -1443,7 +1443,7 @@ func TestCache_request_with_authorization_header_not_cached_but_subrequest_is_ca
 
 	require.Equal(t, false, redirectReceivedAuthorization)
 
-	now = now.Add(time.Minute * 1)
+	now = now.Add(time.Minute * 2)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"authorization": {"Bearer 123"}})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
@@ -1504,7 +1504,7 @@ func TestCache_4xx_is_cached_for_a_fixed_time(t *testing.T) {
 	require.Equal(t, 1, timesOriginHit)
 	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
 
-	now = now.Add(time.Second * 30)
+	now = now.Add(time.Second * 31) // Fixed time being 60s
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
@@ -1676,6 +1676,9 @@ func TestCache_redirection_steps_cached_individually(t *testing.T) {
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, 3, timesOriginHit)
 	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, 3, len(queriedKeys))
+
+	time.Sleep(time.Millisecond * 100)
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"accept-encoding": {"gzip"}})
 	defer resp.Body.Close()
