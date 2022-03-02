@@ -638,7 +638,12 @@ func (s *storage) sortItems(items map[int64]item) {
 	sort.Slice(keys, func(i int, j int) bool { return keys[i] < keys[j] })
 }
 
+const maxPurgeBytes = 1024 * 1024 * 150
+
 func (s *storage) purgeableItemNames(purgeBytes int64) purgeableItems {
+	if purgeBytes > maxPurgeBytes {
+		purgeBytes = maxPurgeBytes
+	}
 	// 1. look for items without access times and start with them
 	withoutAccessTimes := make([]itemName, 0)
 	var bytesFound int64
