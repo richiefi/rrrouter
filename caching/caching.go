@@ -3,6 +3,7 @@ package caching
 import (
 	"context"
 	"encoding/json"
+	"errors"
 	"fmt"
 	apexlog "github.com/apex/log"
 	"github.com/c2h5oh/datasize"
@@ -173,6 +174,10 @@ func notFoundPreferredKey(keys []Key) Key {
 
 func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
 	defer mets.FromContext(ctx).MarkTime(time.Now())
+	if w == nil {
+		c.logger.Errorf("Writer is gone already for keys %v", keys)
+		return CacheResult{}, keys[0], errors.New("Internal error")
+	}
 	s := c.storageWithCacheId(cacheId)
 	rc, sm, k, err := (*s).Get(ctx, keys)
 	if err != nil {
