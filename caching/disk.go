@@ -1103,7 +1103,14 @@ func (sw *storageWriter) Close() error {
 	} else {
 		metadata = *revalidatedMetadata
 		if sw.revalidatedHeader != nil {
-			metadata.ResponseHeader = util.AllowHeaders(sw.revalidatedHeader, util.HeadersAllowedIn304)
+			for k, vv := range sw.revalidatedHeader {
+				if ov := metadata.ResponseHeader.Get(k); len(ov) > 0 {
+					metadata.ResponseHeader.Del(k)
+				}
+				for _, v := range vv {
+					metadata.ResponseHeader.Add(k, v)
+				}
+			}
 		}
 	}
 

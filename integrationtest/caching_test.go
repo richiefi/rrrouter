@@ -609,7 +609,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
 
-	hdrs = map[string]string{"etag": "1", "cache-control": "public, max-age=60"}
+	hdrs = map[string]string{"etag": "1", "cache-control": "public, max-age=60", "content-encoding": "application/json"}
 	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body := sh.readBody(resp)
@@ -617,6 +617,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	require.Equal(t, []byte("ab"), body)
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, "1", resp.Header.Get("etag"))
+	require.Equal(t, "application/json", resp.Header.Get("content-encoding"))
 	require.Equal(t, 1, timesOriginHit)
 
 	now = now.Add(time.Second * 120)
@@ -628,6 +629,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	hdrs["expires"] = "puppa"
 	hdrs["vary"] = "puppa"
 	hdrs["not-allowed-in-304"] = "puppa"
+	delete(hdrs, "content-encoding")
 	status = 304
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{"1"}})
@@ -642,8 +644,26 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	require.Equal(t, "puppa", resp.Header.Get("last-modified"))
 	require.Equal(t, "puppa", resp.Header.Get("expires"))
 	require.Equal(t, "puppa", resp.Header.Get("vary"))
+	require.Equal(t, "", resp.Header.Get("content-encoding"))
 	require.Equal(t, "", resp.Header.Get("not-allowed-in-304"))
 	require.Equal(t, 2, timesOriginHit)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 200, resp.StatusCode)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, "1", resp.Header.Get("etag"))
+	require.Equal(t, "public, max-age=120", resp.Header.Get("cache-control"))
+	require.Equal(t, "puppa", resp.Header.Get("content-location"))
+	require.Equal(t, "puppa", resp.Header.Get("date"))
+	require.Equal(t, "puppa", resp.Header.Get("last-modified"))
+	require.Equal(t, "puppa", resp.Header.Get("expires"))
+	require.Equal(t, "puppa", resp.Header.Get("vary"))
+	require.Equal(t, "application/json", resp.Header.Get("content-encoding"))
+	require.Equal(t, 2, timesOriginHit)
+
 }
 
 func TestCache_origin_keyed_by_existence_rather_than_value_if_vary_origin_not_in_origin_response(t *testing.T) {
