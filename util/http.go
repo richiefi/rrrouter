@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+var HeadersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "last-modified", "expires", "vary", "richie-edge-cache"}
+
 func IsRedirect(statusCode int) bool {
 	switch statusCode {
 	case 301, 302, 303, 307, 308:

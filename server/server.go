@@ -129,7 +129,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			if cr.Metadata.Status == 304 {
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
-				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), *alwaysInclude)
+				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *alwaysInclude)
 				(*w).WriteHeader(304)
 				return
 			}
@@ -549,7 +549,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			status = reqres.Response.StatusCode
 		}
 		if status == 304 {
-			util.AllowHeaders(writer.Header(), headersAllowedIn304)
+			util.AllowHeaders(writer.Header(), util.HeadersAllowedIn304)
 			writer.WriteHeader(status)
 			return
 		}
@@ -735,12 +735,11 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 	}
 }
 
-var headerContentEncodingKey = "Content-Encoding"
-var headerAcceptEncodingKey = "Accept-Encoding"
-var headerContentLengthKey = "Content-Length"
-var headerVaryKey = "Vary"
-var headerAge = "Age"
-var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "last-modified", "expires", "vary", "richie-edge-cache"}
+const headerContentEncodingKey = "Content-Encoding"
+const headerAcceptEncodingKey = "Accept-Encoding"
+const headerContentLengthKey = "Content-Length"
+const headerVaryKey = "Vary"
+const headerAge = "Age"
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter
