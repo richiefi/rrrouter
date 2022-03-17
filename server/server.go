@@ -61,8 +61,6 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 	s.HandleFunc("/", cachingHandler(router, logger, conf, cache))
 }
 
-const rrrouterCurrentEtagToken = "-001"
-
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
 		m := mets.NewMetrics(or.URL.RequestURI(), nil, nil)
@@ -134,9 +132,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
 					if idx := strings.LastIndex(etag, "\""); idx != -1 {
-						etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+						etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
 					} else {
-						etag += rrrouterCurrentEtagToken
+						etag += caching.RrrouterCurrentEtagToken
 					}
 					(*w).Header().Set("etag", etag)
 				}
@@ -232,9 +230,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
 					if idx := strings.LastIndex(etag, "\""); idx != -1 {
-						etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+						etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
 					} else {
-						etag += rrrouterCurrentEtagToken
+						etag += caching.RrrouterCurrentEtagToken
 					}
 					(*w).Header().Set("etag", etag)
 				}
@@ -291,9 +289,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
 					if idx := strings.LastIndex(etag, "\""); idx != -1 {
-						etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+						etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
 					} else {
-						etag += rrrouterCurrentEtagToken
+						etag += caching.RrrouterCurrentEtagToken
 					}
 					(*w).Header().Set("etag", etag)
 				}
@@ -572,9 +570,9 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 
 		if etag := header.Get("etag"); len(etag) > 0 {
 			if idx := strings.LastIndex(etag, "\""); idx != -1 {
-				etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+				etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
 			} else {
-				etag += rrrouterCurrentEtagToken
+				etag += caching.RrrouterCurrentEtagToken
 			}
 			header.Set("etag", etag)
 		}
