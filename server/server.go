@@ -133,7 +133,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-					(*w).Header().Set("etag", etag+rrrouterCurrentEtagToken)
+					if idx := strings.LastIndex(etag, "\""); idx != -1 {
+						etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+					} else {
+						etag += rrrouterCurrentEtagToken
+					}
+					(*w).Header().Set("etag", etag)
 				}
 				(*w).WriteHeader(304)
 				return
@@ -226,7 +231,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-					(*w).Header().Set("etag", etag+rrrouterCurrentEtagToken)
+					if idx := strings.LastIndex(etag, "\""); idx != -1 {
+						etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+					} else {
+						etag += rrrouterCurrentEtagToken
+					}
+					(*w).Header().Set("etag", etag)
 				}
 				if statusOverride != nil {
 					(*w).WriteHeader(*statusOverride)
@@ -280,7 +290,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-					(*w).Header().Set("etag", etag+rrrouterCurrentEtagToken)
+					if idx := strings.LastIndex(etag, "\""); idx != -1 {
+						etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+					} else {
+						etag += rrrouterCurrentEtagToken
+					}
+					(*w).Header().Set("etag", etag)
 				}
 				(*w).WriteHeader(cr.Metadata.Status)
 
@@ -556,7 +571,12 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 		}
 
 		if etag := header.Get("etag"); len(etag) > 0 {
-			header.Set("etag", etag+rrrouterCurrentEtagToken)
+			if idx := strings.LastIndex(etag, "\""); idx != -1 {
+				etag = etag[:idx] + rrrouterCurrentEtagToken + "\""
+			} else {
+				etag += rrrouterCurrentEtagToken
+			}
+			header.Set("etag", etag)
 		}
 
 		status := 0
