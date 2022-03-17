@@ -322,6 +322,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							writeError(*w, err)
 							return
 						}
+						if len(clientRevalidateHeader) > 0 && len(clientRevalidateValue) > 0 {
+							r.Header.Set(clientRevalidateHeader, clientRevalidateValue)
+						}
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 						cachingFunc(w, r, nil, alwaysInclude, &rf, false)
 						return
