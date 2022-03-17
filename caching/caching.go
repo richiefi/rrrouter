@@ -231,9 +231,19 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
-			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
-				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+			clientEtag := normalizeEtag(etag)
+			if strings.HasSuffix(etag, RrrouterCurrentEtagToken) || strings.HasSuffix(etag, RrrouterCurrentEtagToken+"\"") {
+				hasQuotes := strings.HasSuffix(clientEtag, "\"")
+				idx := strings.LastIndex(clientEtag, RrrouterCurrentEtagToken)
+				clientEtag = clientEtag[:idx]
+				if hasQuotes {
+					clientEtag += "\""
+				}
+
+				if clientEtag == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+					defer rc.Close()
+					return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+				}
 			}
 		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
 			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
