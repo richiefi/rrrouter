@@ -318,7 +318,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				if len(revalidatedWithHeader) > 0 {
 					r.Header.Del(revalidatedWithHeader)
 					if reqres.Response.StatusCode == 304 {
-						err := cr.Writer.SetRevalidatedAndClose()
+						err := cr.Writer.SetRevalidatedAndClose(reqres.Response.Header)
 						if err != nil {
 							writeError(*w, err)
 							return

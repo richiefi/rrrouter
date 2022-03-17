@@ -530,7 +530,7 @@ type CacheWriter interface {
 	http.Flusher
 	WriteHeader(statusCode int, header http.Header)
 	SetRedirectedURL(redir *url.URL)
-	SetRevalidated()
+	SetRevalidated(http.Header)
 	SetRevalidateErrored(bool)
 	ChangeKey(Key) error
 	Delete() error
@@ -581,7 +581,7 @@ type CachingResponseWriter interface {
 	GetClientWritesDisabled() bool
 	SetDiskWritesDisabled()
 	SetRedirectedURL(*url.URL)
-	SetRevalidatedAndClose() error
+	SetRevalidatedAndClose(http.Header) error
 	SetRevalidateErroredAndClose(bool) error
 }
 
@@ -681,11 +681,11 @@ func (crw *cachingResponseWriter) SetRedirectedURL(redir *url.URL) {
 	crw.cacheWriter.SetRedirectedURL(redir)
 }
 
-func (crw *cachingResponseWriter) SetRevalidatedAndClose() error {
+func (crw *cachingResponseWriter) SetRevalidatedAndClose(h http.Header) error {
 	if crw.diskWritesDisabled {
 		return nil
 	}
-	crw.cacheWriter.SetRevalidated()
+	crw.cacheWriter.SetRevalidated(h)
 	return crw.cacheWriter.Close()
 }
 
