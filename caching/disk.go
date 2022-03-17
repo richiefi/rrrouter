@@ -923,6 +923,7 @@ type storageWriter struct {
 	writtenSize       int64
 	log               *apexlog.Logger
 	wasRevalidated    bool
+	revalidatedHeader http.Header
 	revalidateErrored bool
 	canStaleIfError   bool
 	now               func() time.Time
@@ -1101,6 +1102,9 @@ func (sw *storageWriter) Close() error {
 		}
 	} else {
 		metadata = *revalidatedMetadata
+		if sw.revalidatedHeader != nil {
+			metadata.ResponseHeader = util.AllowHeaders(sw.revalidatedHeader, util.HeadersAllowedIn304)
+		}
 	}
 
 	if cl := sw.responseHeader.Get("content-length"); len(cl) > 0 {
@@ -1238,8 +1242,9 @@ func (sw *storageWriter) SetRedirectedURL(redir *url.URL) {
 	sw.redirectedURL = redir
 }
 
-func (sw *storageWriter) SetRevalidated() {
+func (sw *storageWriter) SetRevalidated(h http.Header) {
 	sw.wasRevalidated = true
+	sw.revalidatedHeader = h
 }
 
 func (sw *storageWriter) SetRevalidateErrored(canStaleIfError bool) {

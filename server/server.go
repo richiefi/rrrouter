@@ -129,7 +129,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			if cr.Metadata.Status == 304 {
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
-				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), *alwaysInclude)
+				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *alwaysInclude)
 				(*w).WriteHeader(304)
 				return
 			}
@@ -290,14 +290,13 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				if rRange != nil {
 					r.Header.Del("range")
 				}
-				revalidatedWithHeader := ""
+				clientRevalidateHeader, _, clientRevalidateValue := util.RevalidateHeaders(r.Header)
+				usedRevalidateHeader := ""
 				if cr.Kind == caching.RevalidatingWriter {
-					if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
-						r.Header.Set("if-none-match", etag)
-						revalidatedWithHeader = "if-none-match"
-					} else if lastModified := cr.Metadata.Header.Get("last-modified"); len(lastModified) > 0 {
-						r.Header.Set("if-modified-since", lastModified)
-						revalidatedWithHeader = "if-modified-since"
+					clientHeader, _, v := util.RevalidateHeaders(cr.Metadata.Header)
+					if len(v) > 0 {
+						r.Header.Set(clientHeader, v)
+						usedRevalidateHeader = clientHeader
 					}
 				} else if cr.Kind == caching.NotFoundWriter {
 					r.Header.Del("if-none-match")
@@ -315,13 +314,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						alwaysInclude.Set(hname, hval)
 					}
 				}
-				if len(revalidatedWithHeader) > 0 {
-					r.Header.Del(revalidatedWithHeader)
+				if len(usedRevalidateHeader) > 0 {
+					r.Header.Del(usedRevalidateHeader)
 					if reqres.Response.StatusCode == 304 {
-						err := cr.Writer.SetRevalidatedAndClose()
+						err := cr.Writer.SetRevalidatedAndClose(reqres.Response.Header)
 						if err != nil {
 							writeError(*w, err)
 							return
+						}
+						if len(clientRevalidateHeader) > 0 && len(clientRevalidateValue) > 0 {
+							r.Header.Set(clientRevalidateHeader, clientRevalidateValue)
 						}
 						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 						cachingFunc(w, r, nil, alwaysInclude, &rf, false)
@@ -549,7 +551,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			status = reqres.Response.StatusCode
 		}
 		if status == 304 {
-			util.AllowHeaders(writer.Header(), headersAllowedIn304)
+			util.AllowHeaders(writer.Header(), util.HeadersAllowedIn304)
 			writer.WriteHeader(status)
 			return
 		}
@@ -735,12 +737,11 @@ func makeCachingWriteBody(rr *requestRange) BodyWriter {
 	}
 }
 
-var headerContentEncodingKey = "Content-Encoding"
-var headerAcceptEncodingKey = "Accept-Encoding"
-var headerContentLengthKey = "Content-Length"
-var headerVaryKey = "Vary"
-var headerAge = "Age"
-var headersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "last-modified", "expires", "vary", "richie-edge-cache"}
+const headerContentEncodingKey = "Content-Encoding"
+const headerAcceptEncodingKey = "Accept-Encoding"
+const headerContentLengthKey = "Content-Length"
+const headerVaryKey = "Vary"
+const headerAge = "Age"
 
 type EncodingResponseWriter interface {
 	http.ResponseWriter

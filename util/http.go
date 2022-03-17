@@ -6,6 +6,8 @@ import (
 	"strings"
 )
 
+var HeadersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "last-modified", "expires", "vary", "richie-edge-cache"}
+
 func IsRedirect(statusCode int) bool {
 	switch statusCode {
 	case 301, 302, 303, 307, 308:
@@ -65,6 +67,21 @@ func RedirectedURL(orig *http.Request, requestedUrl *url.URL, redir *url.URL) *u
 			return newUrl
 		}
 	}
+}
+
+// RevalidateHeaders returns a pair of revalidation header keys,
+// in the order of client key, origin key and its value, if found.
+func RevalidateHeaders(h http.Header) (string, string, string) {
+	eitherOr := [][]string{{"if-none-match", "etag"}, {"if-modified-since", "last-modified"}}
+	for _, tup := range eitherOr {
+		if v := h.Get(tup[0]); v != "" {
+			return tup[0], tup[1], v
+		} else if v = h.Get(tup[1]); v != "" {
+			return tup[0], tup[1], v
+		}
+	}
+
+	return "", "", ""
 }
 
 func AllowHeaders(h http.Header, allowlist []string) http.Header {
