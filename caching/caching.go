@@ -171,6 +171,8 @@ func notFoundPreferredKey(keys []Key) Key {
 	return keys[0]
 }
 
+const RrrouterCurrentEtagToken = "-001"
+
 func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
 	defer mets.FromContext(ctx).MarkTime(time.Now())
 	s := c.storageWithCacheId(cacheId)
