@@ -61,6 +61,8 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 	s.HandleFunc("/", cachingHandler(router, logger, conf, cache))
 }
 
+const rrrouterCurrentEtagToken = "-001"
+
 func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
 		m := mets.NewMetrics(or.URL.RequestURI(), nil, nil)
@@ -130,6 +132,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if cr.Metadata.Status == 304 {
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), *alwaysInclude)
+				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
+					(*w).Header().Set("etag", etag+rrrouterCurrentEtagToken)
+				}
 				(*w).WriteHeader(304)
 				return
 			}
@@ -220,6 +225,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
+					(*w).Header().Set("etag", etag+rrrouterCurrentEtagToken)
+				}
 				if statusOverride != nil {
 					(*w).WriteHeader(*statusOverride)
 				} else {
@@ -271,6 +279,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
+					(*w).Header().Set("etag", etag+rrrouterCurrentEtagToken)
+				}
 				(*w).WriteHeader(cr.Metadata.Status)
 
 				_, err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
@@ -540,6 +551,10 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			header.Set(headerVaryKey, vary)
 		} else {
 			writer = w
+		}
+
+		if etag := header.Get("etag"); len(etag) > 0 {
+			header.Set("etag", etag+rrrouterCurrentEtagToken)
 		}
 
 		status := 0
