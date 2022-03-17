@@ -290,14 +290,13 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				if rRange != nil {
 					r.Header.Del("range")
 				}
-				revalidatedWithHeader := ""
+				clientRevalidateHeader, _, clientRevalidateValue := util.RevalidateHeaders(r.Header)
+				usedRevalidateHeader := ""
 				if cr.Kind == caching.RevalidatingWriter {
-					if etag := cr.Metadata.Header.Get("etag"); len(etag) > 0 {
-						r.Header.Set("if-none-match", etag)
-						revalidatedWithHeader = "if-none-match"
-					} else if lastModified := cr.Metadata.Header.Get("last-modified"); len(lastModified) > 0 {
-						r.Header.Set("if-modified-since", lastModified)
-						revalidatedWithHeader = "if-modified-since"
+					clientHeader, _, v := util.RevalidateHeaders(cr.Metadata.Header)
+					if len(v) > 0 {
+						r.Header.Set(clientHeader, v)
+						usedRevalidateHeader = clientHeader
 					}
 				} else if cr.Kind == caching.NotFoundWriter {
 					r.Header.Del("if-none-match")
@@ -315,8 +314,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						alwaysInclude.Set(hname, hval)
 					}
 				}
-				if len(revalidatedWithHeader) > 0 {
-					r.Header.Del(revalidatedWithHeader)
+				if len(usedRevalidateHeader) > 0 {
+					r.Header.Del(usedRevalidateHeader)
 					if reqres.Response.StatusCode == 304 {
 						err := cr.Writer.SetRevalidatedAndClose(reqres.Response.Header)
 						if err != nil {
