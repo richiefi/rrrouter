@@ -1162,6 +1162,11 @@ func (sw *storageWriter) Close() error {
 		sw.Delete()
 		return err
 	}
+	now := time.Now()
+	err = os.Chtimes(sw.path, now, now)
+	if err != nil {
+		sw.log.Errorf("Could not set mtime for file %v: %v", sw.path, err)
+	}
 
 	if len(sw.originalPath) > 0 {
 		err = os.Rename(sw.path, sw.originalPath)
