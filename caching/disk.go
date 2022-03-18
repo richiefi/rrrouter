@@ -946,6 +946,10 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		if IsCacheableError(s) {
 			h.Set("cache-control", "s-maxage=60, max-age=60")
 		}
+		h = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
+		if etag := h.Get("etag"); len(etag) > 0 {
+			h.Set("etag", util.StripETagSuffix(etag))
+		}
 		sw.responseHeader = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
 	}
 
