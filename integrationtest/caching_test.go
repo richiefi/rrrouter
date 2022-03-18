@@ -399,6 +399,78 @@ func TestCache_revalidation_passed_with_etag_given(t *testing.T) {
 	require.Equal(t, 2, timesOriginHit)
 }
 
+func TestCache_etag_suffix_changes_and_client_receives_forced_http_200_with_body(t *testing.T) {
+	sh := setup(t)
+	now = time.Now()
+	timesOriginHit := 0
+
+	hdrs = map[string]string{"etag": `"abcd"`, "cache-control": "public"}
+	originBody := []byte("ab")
+	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		timesOriginHit += 1
+		h := w.Header()
+		for k, v := range hdrs {
+			h.Set(k, v)
+		}
+		if timesOriginHit >= 2 {
+			require.Equal(t, `"abcd"`, r.Header.Get("if-none-match"))
+			w.WriteHeader(http.StatusNotModified)
+		} else {
+			w.WriteHeader(http.StatusOK)
+			_, _ = w.Write(originBody)
+		}
+	}))
+	defer originServer.Close()
+
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 0, originServer, sh)
+	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
+		return now
+	})
+
+	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
+	defer listener.Close()
+
+	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
+	defer resp.Body.Close()
+	body := sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, `"abcd"`, resp.Header.Get("etag"))
+	require.Equal(t, 1, timesOriginHit)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{`"abcd"`}})
+	defer resp.Body.Close()
+	require.Equal(t, 304, resp.StatusCode)
+	body = sh.readBody(resp)
+	require.Equal(t, []byte(""), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, `"abcd"`, resp.Header.Get("etag"))
+	require.Equal(t, 1, timesOriginHit)
+
+	token := "-001"
+	prevToken := os.Getenv("ETAG_TOKEN")
+	os.Setenv("ETAG_TOKEN", token)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{`"abcd"`}})
+	defer resp.Body.Close()
+	require.Equal(t, 200, resp.StatusCode)
+	body = sh.readBody(resp)
+	require.Equal(t, []byte("ab"), body)
+	require.Equal(t, "hit", resp.Header.Get("richie-edge-cache"))
+	require.Equal(t, `"abcd`+token+`"`, resp.Header.Get("etag"))
+	require.Equal(t, 1, timesOriginHit)
+
+	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{`"abcd` + token + `"`}})
+	defer resp.Body.Close()
+	body = sh.readBody(resp)
+	require.Equal(t, 304, resp.StatusCode)
+	require.Equal(t, []byte(""), body)
+	require.Equal(t, `"abcd`+token+`"`, resp.Header.Get("etag"))
+	require.Equal(t, 1, timesOriginHit)
+
+	os.Setenv("ETAG_TOKEN", prevToken)
+}
+
 func TestCache_item_revalidation_uses_conditionals_if_available(t *testing.T) {
 	sh := setup(t)
 	now = time.Now()
