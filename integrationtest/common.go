@@ -9,6 +9,7 @@ import (
 	"net/http/httptest"
 	"net/http/httputil"
 	"net/url"
+	"os"
 	"strings"
 	"testing"
 
@@ -20,6 +21,10 @@ import (
 
 	apexlog "github.com/apex/log"
 )
+
+func ETagToken() string {
+	return os.Getenv("ETAG_TOKEN")
+}
 
 func setup(t *testing.T) *ServerHelper {
 	logger := newLogger(t)

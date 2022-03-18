@@ -143,7 +143,7 @@ func TestConnection_client_requests_brotli_from_gzip_origin_gets_brotli(t *testi
 	require.Equal(t, []byte(brBody), body)
 	require.Equal(t, "br", resp.Header.Get("Content-Encoding"))
 	require.Equal(t, "Authorization, Accept-Encoding", resp.Header.Get("Vary"))
-	require.Equal(t, "1234", resp.Header.Get("Etag"))
+	require.Equal(t, "1234"+ETagToken(), resp.Header.Get("Etag"))
 }
 
 func TestConnection_client_requests_brotli_from_gzip_origin_no_transform_set_gets_gzip(t *testing.T) {
@@ -188,7 +188,7 @@ func TestConnection_client_requests_brotli_from_gzip_origin_no_transform_set_get
 	require.Equal(t, []byte(gzBody), body)
 	require.Equal(t, "gzip", resp.Header.Get("Content-Encoding"))
 	require.Equal(t, "Authorization", resp.Header.Get("Vary"))
-	require.Equal(t, "1234", resp.Header.Get("Etag"))
+	require.Equal(t, "1234"+ETagToken(), resp.Header.Get("Etag"))
 }
 
 func TestConnection_client_requests_gzip_from_gzip_origin_gets_gzip(t *testing.T) {
