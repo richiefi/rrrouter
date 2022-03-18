@@ -131,12 +131,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, headersAllowedIn304), *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-					if idx := strings.LastIndex(etag, "\""); idx != -1 {
-						etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
-					} else {
-						etag += caching.RrrouterCurrentEtagToken
-					}
-					(*w).Header().Set("etag", etag)
+					(*w).Header().Set("etag", util.AddETagSuffix(etag))
 				}
 				(*w).WriteHeader(304)
 				return
@@ -229,12 +224,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-					if idx := strings.LastIndex(etag, "\""); idx != -1 {
-						etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
-					} else {
-						etag += caching.RrrouterCurrentEtagToken
-					}
-					(*w).Header().Set("etag", etag)
+					(*w).Header().Set("etag", util.AddETagSuffix(etag))
 				}
 				if statusOverride != nil {
 					(*w).WriteHeader(*statusOverride)
@@ -288,12 +278,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
 				if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-					if idx := strings.LastIndex(etag, "\""); idx != -1 {
-						etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
-					} else {
-						etag += caching.RrrouterCurrentEtagToken
-					}
-					(*w).Header().Set("etag", etag)
+					(*w).Header().Set("etag", util.AddETagSuffix(etag))
 				}
 				(*w).WriteHeader(cr.Metadata.Status)
 
@@ -567,12 +552,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 		}
 
 		if etag := header.Get("etag"); len(etag) > 0 {
-			if idx := strings.LastIndex(etag, "\""); idx != -1 {
-				etag = etag[:idx] + caching.RrrouterCurrentEtagToken + "\""
-			} else {
-				etag += caching.RrrouterCurrentEtagToken
-			}
-			header.Set("etag", etag)
+			header.Set("etag", util.AddETagSuffix(etag))
 		}
 
 		status := 0

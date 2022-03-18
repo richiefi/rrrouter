@@ -3,8 +3,49 @@ package util
 import (
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
+
+var etagToken *string
+
+func CurrentEtagToken() *string {
+	if etagToken == nil {
+		token := os.Getenv("ETAG_TOKEN")
+		if len(token) > 0 {
+			etagToken = &token
+		}
+	}
+
+	return etagToken
+}
+
+func AddETagSuffix(etag string) string {
+	if token := CurrentEtagToken(); token != nil {
+		if strings.HasSuffix(strings.TrimRight(etag, "\""), *token) {
+			return etag
+		}
+		if idx := strings.LastIndex(etag, "\""); idx != -1 {
+			etag = etag[:idx] + *token + "\""
+		} else {
+			etag += *token
+		}
+	}
+
+	return etag
+}
+
+func StripETagSuffix(etag string) string {
+	if token := CurrentEtagToken(); token != nil {
+		if strings.HasSuffix(etag, *token+"\"") {
+			return strings.TrimSuffix(etag, *token+"\"") + "\""
+		} else if strings.HasSuffix(etag, *token) {
+			return strings.TrimSuffix(etag, *token)
+		}
+	}
+
+	return etag
+}
 
 func IsRedirect(statusCode int) bool {
 	switch statusCode {
