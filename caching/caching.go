@@ -172,8 +172,6 @@ func notFoundPreferredKey(keys []Key) Key {
 	return keys[0]
 }
 
-const RrrouterCurrentEtagToken = "-001"
-
 func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, skipRevalidate bool, keys []Key, w http.ResponseWriter, logctx *apexlog.Logger) (CacheResult, Key, error) {
 	defer mets.FromContext(ctx).MarkTime(time.Now())
 	if w == nil {
@@ -237,9 +235,10 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			clientEtag := normalizeEtag(etag)
-			if strings.HasSuffix(etag, RrrouterCurrentEtagToken) || strings.HasSuffix(etag, RrrouterCurrentEtagToken+"\"") {
+			token := util.CurrentEtagToken()
+			if token != nil && (strings.HasSuffix(etag, *token) || strings.HasSuffix(etag, *token+"\"")) {
 				hasQuotes := strings.HasSuffix(clientEtag, "\"")
-				idx := strings.LastIndex(clientEtag, RrrouterCurrentEtagToken)
+				idx := strings.LastIndex(clientEtag, *token)
 				clientEtag = clientEtag[:idx]
 				if hasQuotes {
 					clientEtag += "\""
