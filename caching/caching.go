@@ -248,6 +248,9 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 					defer rc.Close()
 					return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 				}
+			} else if token == nil && normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+				defer rc.Close()
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}
 		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
 			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
