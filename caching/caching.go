@@ -235,7 +235,7 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
 			clientEtag := normalizeEtag(etag)
-			token := util.CurrentEtagToken()
+			token := util.CurrentEtagSuffix()
 			if token != nil && (strings.HasSuffix(etag, *token) || strings.HasSuffix(etag, *token+"\"")) {
 				hasQuotes := strings.HasSuffix(clientEtag, "\"")
 				idx := strings.LastIndex(clientEtag, *token)

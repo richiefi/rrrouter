@@ -448,8 +448,8 @@ func TestCache_etag_suffix_changes_and_client_receives_forced_http_200_with_body
 	require.Equal(t, 1, timesOriginHit)
 
 	token := "-001"
-	prevToken := os.Getenv("ETAG_TOKEN")
-	os.Setenv("ETAG_TOKEN", token)
+	prevToken := os.Getenv("ETAG_SUFFIX")
+	os.Setenv("ETAG_SUFFIX", token)
 
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{"if-none-match": []string{`"abcd"`}})
 	defer resp.Body.Close()
@@ -468,7 +468,7 @@ func TestCache_etag_suffix_changes_and_client_receives_forced_http_200_with_body
 	require.Equal(t, `"abcd`+token+`"`, resp.Header.Get("etag"))
 	require.Equal(t, 1, timesOriginHit)
 
-	os.Setenv("ETAG_TOKEN", prevToken)
+	os.Setenv("ETAG_SUFFIX", prevToken)
 }
 
 func TestCache_item_revalidation_uses_conditionals_if_available(t *testing.T) {

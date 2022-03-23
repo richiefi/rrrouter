@@ -23,7 +23,7 @@ import (
 )
 
 func ETagToken() string {
-	return os.Getenv("ETAG_TOKEN")
+	return os.Getenv("ETAG_SUFFIX")
 }
 
 func setup(t *testing.T) *ServerHelper {

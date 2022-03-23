@@ -29,7 +29,7 @@ func TestRedirectedURL(t *testing.T) {
 
 func TestETagSuffixing(t *testing.T) {
 	tok := "-001"
-	os.Setenv("ETAG_TOKEN", tok)
+	os.Setenv("ETAG_SUFFIX", tok)
 	require.Equal(t, `W/"123-001"`, AddETagSuffix(`W/"123"`))
 	require.Equal(t, `"123-001"`, AddETagSuffix(`"123"`))
 	require.Equal(t, `123-001`, AddETagSuffix(`123`))
@@ -41,7 +41,7 @@ func TestETagSuffixing(t *testing.T) {
 
 func TestETagSuffixStripping(t *testing.T) {
 	tok := "-001"
-	os.Setenv("ETAG_TOKEN", tok)
+	os.Setenv("ETAG_SUFFIX", tok)
 	require.Equal(t, `W/"123"`, StripETagSuffix(`W/"123-001"`))
 	require.Equal(t, `W/"123"`, StripETagSuffix(`W/"123"`))
 	require.Equal(t, `"123"`, StripETagSuffix(`"123-001"`))
