@@ -234,7 +234,21 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 
 	if !shouldRevalidate {
 		if etag := k.originalHeaders.Get("if-none-match"); len(etag) > 0 {
-			if normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+			clientEtag := normalizeEtag(etag)
+			token := util.CurrentEtagSuffix()
+			if token != nil && (strings.HasSuffix(etag, *token) || strings.HasSuffix(etag, *token+"\"")) {
+				hasQuotes := strings.HasSuffix(clientEtag, "\"")
+				idx := strings.LastIndex(clientEtag, *token)
+				clientEtag = clientEtag[:idx]
+				if hasQuotes {
+					clientEtag += "\""
+				}
+
+				if clientEtag == normalizeEtag(sm.ResponseHeader.Get("etag")) {
+					defer rc.Close()
+					return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+				}
+			} else if token == nil && normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
 				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
 			}

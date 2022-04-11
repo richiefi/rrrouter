@@ -3,10 +3,47 @@ package util
 import (
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 )
 
 var HeadersAllowedIn304 = []string{"cache-control", "content-location", "date", "etag", "last-modified", "expires", "vary", "richie-edge-cache"}
+
+func CurrentEtagSuffix() *string {
+	token := os.Getenv("ETAG_SUFFIX")
+	if len(token) > 0 {
+		return &token
+	}
+
+	return nil
+}
+
+func AddETagSuffix(etag string) string {
+	if token := CurrentEtagSuffix(); token != nil {
+		if strings.HasSuffix(strings.TrimRight(etag, "\""), *token) {
+			return etag
+		}
+		if idx := strings.LastIndex(etag, "\""); idx != -1 {
+			etag = etag[:idx] + *token + "\""
+		} else {
+			etag += *token
+		}
+	}
+
+	return etag
+}
+
+func StripETagSuffix(etag string) string {
+	if token := CurrentEtagSuffix(); token != nil {
+		if strings.HasSuffix(etag, *token+"\"") {
+			return strings.TrimSuffix(etag, *token+"\"") + "\""
+		} else if strings.HasSuffix(etag, *token) {
+			return strings.TrimSuffix(etag, *token)
+		}
+	}
+
+	return etag
+}
 
 func IsRedirect(statusCode int) bool {
 	switch statusCode {

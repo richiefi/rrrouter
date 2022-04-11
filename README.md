@@ -320,6 +320,14 @@ cache-control: max-age=0
 cache-control: s-maxage=0
 cache-control: private
 
+### Purging cache entries
+
+Short of a full cache wipe, the caches can be organized by types of responses served and purged manually.
+
+If a forced refresh of responses is needed, the env var `ETAG_SUFFIX` can be set and its value will be suffixed to each
+entry's `ETag` header when serving responses, or comparing with incoming `If-None-Match` headers.  This suffix is not
+stored to entries on disk and can be changed to have an immediate effect.
+
 ### Detecting cache usage with requests
 
 Rrrouter includes a `richie-edge-cache` response header, with values being `miss`, `hit`, `revalidated`, `stale`, `pass` or `uncacheable`. If a rule should match and the response was not cached, the `richie-edge-cache` is omitted.

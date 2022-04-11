@@ -947,6 +947,10 @@ func (sw *storageWriter) WriteHeader(s int, h http.Header) {
 		if IsCacheableError(s) {
 			h.Set("cache-control", "s-maxage=60, max-age=60")
 		}
+		h = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
+		if etag := h.Get("etag"); len(etag) > 0 {
+			h.Set("etag", util.StripETagSuffix(etag))
+		}
 		sw.responseHeader = util.DenyHeaders(h, []string{HeaderRrrouterCacheStatus})
 	}
 
@@ -1161,6 +1165,11 @@ func (sw *storageWriter) Close() error {
 	if err != nil {
 		sw.Delete()
 		return err
+	}
+	now := time.Now()
+	err = os.Chtimes(sw.path, now, now)
+	if err != nil {
+		sw.log.Errorf("Could not set mtime for file %v: %v", sw.path, err)
 	}
 
 	if len(sw.originalPath) > 0 {

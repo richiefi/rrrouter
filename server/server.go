@@ -130,6 +130,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if cr.Metadata.Status == 304 {
 				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *alwaysInclude)
+				suffixETag(w)
 				(*w).WriteHeader(304)
 				return
 			}
@@ -220,6 +221,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				suffixETag(w)
 				if statusOverride != nil {
 					(*w).WriteHeader(*statusOverride)
 				} else {
@@ -271,6 +273,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 
 				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				suffixETag(w)
 				(*w).WriteHeader(cr.Metadata.Status)
 
 				_, err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
@@ -430,6 +433,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 	}
 }
 
+func suffixETag(w *http.ResponseWriter) {
+	if etag := (*w).Header().Get("etag"); len(etag) > 0 {
+		(*w).Header().Set("etag", util.AddETagSuffix(etag))
+	}
+}
+
 func ruleDestinationRequest(r *http.Request, rule proxy.Rule) *http.Request {
 	return rule.OverrideOnRequest(r.Clone(context.Background()))
 }
@@ -542,6 +551,10 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			header.Set(headerVaryKey, vary)
 		} else {
 			writer = w
+		}
+
+		if etag := header.Get("etag"); len(etag) > 0 {
+			header.Set("etag", util.AddETagSuffix(etag))
 		}
 
 		status := 0
