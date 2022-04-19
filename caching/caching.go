@@ -699,6 +699,9 @@ func (crw *cachingResponseWriter) SetRevalidatedAndClose(h http.Header) error {
 	if crw.diskWritesDisabled {
 		return nil
 	}
+	if h.Get("content-length") == "0" {
+		h.Del("content-length")
+	}
 	crw.cacheWriter.SetRevalidated(h)
 	return crw.cacheWriter.Close()
 }
