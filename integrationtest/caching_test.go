@@ -12,6 +12,7 @@ import (
 	"github.com/stretchr/testify/require"
 	"io/ioutil"
 	"math/rand"
+	"net"
 	"net/http"
 	"net/http/httptest"
 	"net/url"
@@ -660,20 +661,35 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	hdrs = map[string]string{}
 	status := 200
 	originBody := []byte("ab")
-	originServer := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-		timesOriginHit += 1
-		h := w.Header()
-		for k, v := range hdrs {
-			h.Set(k, v)
-		}
-		w.WriteHeader(status)
-		if status == 200 {
-			_, _ = w.Write(originBody)
-		}
-	}))
-	defer originServer.Close()
 
-	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
+	port := rand.Intn(30000) + 20000
+	originListener, err := net.Listen("tcp", ":"+strconv.Itoa(port))
+	require.NoError(t, err)
+	var tcpListener = func() {
+		for {
+			conn, err := originListener.Accept()
+			if err != nil {
+				continue
+			}
+			timesOriginHit += 1
+			_, err = conn.Write([]byte(fmt.Sprintf("HTTP/1.1 %d OK\r\n", status)))
+			require.NoError(t, err)
+			for k, v := range hdrs {
+				_, err = conn.Write([]byte(fmt.Sprintf("%s: %s\r\n", k, v)))
+				require.NoError(t, err)
+			}
+			_, err = conn.Write([]byte("\r\n"))
+			require.NoError(t, err)
+			if status == 200 {
+				_, err = conn.Write(originBody)
+				require.NoError(t, err)
+			}
+			_ = conn.Close()
+		}
+	}
+	go tcpListener()
+
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, "http://127.0.0.1:"+strconv.Itoa(port), sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
 	})
@@ -681,7 +697,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	listener := listenerWithCache(c, rules, sh.Logger, testConfig())
 	defer listener.Close()
 
-	hdrs = map[string]string{"etag": "1", "cache-control": "public, max-age=60", "content-encoding": "application/json"}
+	hdrs = map[string]string{"etag": "1", "cache-control": "public, max-age=60", "content-encoding": "application/json", "content-length": "2"}
 	resp := sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body := sh.readBody(resp)
@@ -690,6 +706,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	require.Equal(t, "miss", resp.Header.Get("richie-edge-cache"))
 	require.Equal(t, "1", resp.Header.Get("etag"))
 	require.Equal(t, "application/json", resp.Header.Get("content-encoding"))
+	require.Equal(t, "2", resp.Header.Get("content-length"))
 	require.Equal(t, 1, timesOriginHit)
 
 	now = now.Add(time.Second * 120)
@@ -701,6 +718,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	hdrs["expires"] = "puppa"
 	hdrs["vary"] = "puppa"
 	hdrs["not-allowed-in-304"] = "puppa"
+	hdrs["content-length"] = "0"
 	delete(hdrs, "content-encoding")
 	status = 304
 
@@ -734,6 +752,7 @@ func TestCache_304_from_origin_updates_headers_in_cache(t *testing.T) {
 	require.Equal(t, "puppa", resp.Header.Get("expires"))
 	require.Equal(t, "puppa", resp.Header.Get("vary"))
 	require.Equal(t, "application/json", resp.Header.Get("content-encoding"))
+	require.Equal(t, "2", resp.Header.Get("content-length"))
 	require.Equal(t, 2, timesOriginHit)
 
 }
