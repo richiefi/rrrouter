@@ -422,7 +422,7 @@ func TestCache_etag_suffix_changes_and_client_receives_forced_http_200_with_body
 	}))
 	defer originServer.Close()
 
-	rules := rulesWithCacheIdRevalidate(t, "disk1", 0, originServer, sh)
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 0, originServer.URL, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
 	})
@@ -552,7 +552,7 @@ func TestCache_forced_revalidate_interval(t *testing.T) {
 	}))
 	defer originServer.Close()
 
-	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer.URL, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
 	})
@@ -603,7 +603,7 @@ func TestCache_lying_origin_etags_and_revalidate(t *testing.T) {
 	}))
 	defer originServer.Close()
 
-	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer, sh)
+	rules := rulesWithCacheIdRevalidate(t, "disk1", 10, originServer.URL, sh)
 	c := caching.NewCacheWithOptions([]caching.StorageConfiguration{{Size: datasize.MB * 1, Path: t.TempDir(), Id: "disk1"}}, sh.Logger, func() time.Time {
 		return now
 	})
@@ -2443,11 +2443,11 @@ func rulesWithCacheIdRestartOnRedirectResponseHeaders(t *testing.T, cacheId stri
 	return rules
 }
 
-func rulesWithCacheIdRevalidate(t *testing.T, cacheId string, forceRevalidate int, originServer *httptest.Server, sh *ServerHelper) *proxy.Rules {
+func rulesWithCacheIdRevalidate(t *testing.T, cacheId string, forceRevalidate int, originServerURL string, sh *ServerHelper) *proxy.Rules {
 	rules, err := proxy.NewRules([]proxy.RuleSource{
 		{
 			Path:            "/t/*",
-			Destination:     fmt.Sprintf("%s/$1", originServer.URL),
+			Destination:     fmt.Sprintf("%s/$1", originServerURL),
 			Internal:        false,
 			Recompression:   false,
 			CacheId:         cacheId,
