@@ -149,10 +149,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			rRange := getRange(r.Header)
 			shouldSkipIfNotCached := rRange != nil
 
+			h := (*w).Header()
 			if cr.Metadata.Status == 304 {
 				include.Set(caching.HeaderRrrouterCacheStatus, "hit")
-				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *include)
-				suffixETag(w)
+				h = clearAndCopyHeaders(h, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *include)
+				h = suffixETag(h)
 				(*w).WriteHeader(304)
 				return
 			}
@@ -242,8 +243,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 				}
 
-				clearAndCopyHeaders(*w, cr.Metadata.Header, *include)
-				suffixETag(w)
+				h = clearAndCopyHeaders(h, cr.Metadata.Header, *include)
+				h = suffixETag(h)
 				if statusOverride != nil {
 					(*w).WriteHeader(*statusOverride)
 				} else {
@@ -293,9 +294,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				} else if cr.Kind == caching.NotFoundReader {
 					include.Set(caching.HeaderRrrouterCacheStatus, "miss")
 				}
-
-				clearAndCopyHeaders(*w, cr.Metadata.Header, *include)
-				suffixETag(w)
+				h = clearAndCopyHeaders(h, cr.Metadata.Header, *include)
+				h = suffixETag(h)
 				(*w).WriteHeader(cr.Metadata.Status)
 
 				_, err := sendBody(*w, cr.Reader, cr.Metadata.Size, rRange, logctx)
@@ -460,10 +460,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 	}
 }
 
-func suffixETag(w *http.ResponseWriter) {
-	if etag := (*w).Header().Get("etag"); len(etag) > 0 {
-		(*w).Header().Set("etag", util.AddETagSuffix(etag))
+func suffixETag(h http.Header) http.Header {
+	if etag := h.Get("etag"); len(etag) > 0 {
+		h.Set("etag", util.AddETagSuffix(etag))
 	}
+
+	return h
 }
 
 func ruleDestinationRequest(r *http.Request, rule proxy.Rule) *http.Request {
@@ -539,7 +541,8 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			logctx.Errorf("writer has gone unexpectedly for %v", reqres.Response.Request.URL)
 			return
 		}
-		header := clearAndCopyHeaders(w, reqres.Response.Header, alwaysInclude)
+		header := w.Header()
+		header = clearAndCopyHeaders(header, reqres.Response.Header, alwaysInclude)
 
 		var reader io.ReadCloser
 		var writer http.ResponseWriter
@@ -604,26 +607,25 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 	}
 }
 
-func clearAndCopyHeaders(w http.ResponseWriter, originHeader http.Header, alwaysInclude http.Header) http.Header {
+func clearAndCopyHeaders(h http.Header, originHeader http.Header, alwaysInclude http.Header) http.Header {
 	// Remove implicit headers
-	header := w.Header()
-	for hname := range header {
-		header.Del(hname)
+	for hname := range h {
+		h.Del(hname)
 	}
-
 	// Copy headers over from the response we received from the proxied server
 	for hname, hvals := range originHeader {
 		for _, hval := range hvals {
-			header.Add(hname, hval)
+			h.Add(hname, hval)
 		}
 	}
 	// Set any of our own headers
 	for hname, hvals := range alwaysInclude {
 		for _, hval := range hvals {
-			header.Set(hname, hval)
+			h.Set(hname, hval)
 		}
 	}
-	return header
+
+	return h
 }
 
 func setRangedHeaders(rr *requestRange, contentLength int64, statusCode int, h *http.Header) (int, *http.Header) {
