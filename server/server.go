@@ -91,7 +91,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		defer sentry.Recover()
 
 		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors, bool)
-		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, alwaysInclude *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
+		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, include *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
 			r = preprocessHeaders(r, rf.RequestHeaders)
@@ -99,8 +99,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			if len(rf.CacheId) == 0 && frf != nil {
 				rf = *frf
 			}
-			if alwaysInclude == nil {
-				alwaysInclude = &http.Header{}
+			if include == nil {
+				include = &http.Header{}
 			}
 			if len(rf.CacheId) == 0 || !cache.HasStorage(rf.CacheId) || (r.Method != "GET" && r.Method != "HEAD") {
 				reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
@@ -121,17 +121,17 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					rr.URL = redirectedUrl
 					rr.Host = redirectedUrl.Host
 					rr.RequestURI = reqres.RedirectedURL.RequestURI()
-					cachingFunc(w, rr, nil, alwaysInclude, &rf, false)
+					cachingFunc(w, rr, nil, include, &rf, false)
 					return
 				}
 
 				for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
 					for _, hval := range hvals {
-						alwaysInclude.Set(hname, hval)
+						include.Set(hname, hval)
 					}
 				}
-				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
-				requestHandler(reqres, logger, conf)(*w, r, *alwaysInclude, nil, writeBody, false, nil)
+				include.Set(caching.HeaderRrrouterCacheStatus, "pass")
+				requestHandler(reqres, logger, conf)(*w, r, *include, nil, writeBody, false, nil)
 				return
 			}
 
@@ -150,8 +150,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 			shouldSkipIfNotCached := rRange != nil
 
 			if cr.Metadata.Status == 304 {
-				alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
-				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *alwaysInclude)
+				include.Set(caching.HeaderRrrouterCacheStatus, "hit")
+				clearAndCopyHeaders(*w, util.AllowHeaders(cr.Metadata.Header, util.HeadersAllowedIn304), *include)
 				suffixETag(w)
 				(*w).WriteHeader(304)
 				return
@@ -159,7 +159,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 
 			for hname, hvals := range rf.ResponseHeaders {
 				for _, hval := range hvals {
-					alwaysInclude.Set(hname, hval)
+					include.Set(hname, hval)
 				}
 			}
 
@@ -210,16 +210,16 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					return
 				}
 
-				if len(alwaysInclude.Get(caching.HeaderRrrouterCacheStatus)) == 0 {
+				if len(include.Get(caching.HeaderRrrouterCacheStatus)) == 0 {
 					if cr.IsStale {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "stale")
+						include.Set(caching.HeaderRrrouterCacheStatus, "stale")
 					} else {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+						include.Set(caching.HeaderRrrouterCacheStatus, "hit")
 					}
-				} else if alwaysInclude.Get(caching.HeaderRrrouterCacheStatus) == "pass" {
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "hit")
+				} else if include.Get(caching.HeaderRrrouterCacheStatus) == "pass" {
+					include.Set(caching.HeaderRrrouterCacheStatus, "hit")
 				}
-				alwaysInclude.Set(headerAge, strconv.Itoa(int(cr.Age)))
+				include.Set(headerAge, strconv.Itoa(int(cr.Age)))
 
 				var statusOverride *int
 				if rRange != nil {
@@ -233,7 +233,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					if cr.Metadata.Status == 200 {
 						cl, _ := strconv.Atoi(cr.Metadata.Header.Get("content-length"))
 						var s int
-						s, alwaysInclude = setRangedHeaders(rRange, int64(cl), cr.Metadata.Status, alwaysInclude)
+						s, include = setRangedHeaders(rRange, int64(cl), cr.Metadata.Status, include)
 						if s >= 400 {
 							(*w).WriteHeader(s)
 							return
@@ -242,7 +242,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 				}
 
-				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				clearAndCopyHeaders(*w, cr.Metadata.Header, *include)
 				suffixETag(w)
 				if statusOverride != nil {
 					(*w).WriteHeader(*statusOverride)
@@ -266,7 +266,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 					for hname, hvals := range reqres.FinalRoutingFlavors.ResponseHeaders {
 						for _, hval := range hvals {
-							alwaysInclude.Set(hname, hval)
+							include.Set(hname, hval)
 						}
 					}
 					requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil, writeBody, false, nil)
@@ -284,17 +284,17 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
+					cachingFunc(w, rr, rr.URL, include, &rf, false)
 					return
 				}
 
 				if cr.Kind == caching.RevalidatingReader {
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+					include.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 				} else if cr.Kind == caching.NotFoundReader {
-					alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
+					include.Set(caching.HeaderRrrouterCacheStatus, "miss")
 				}
 
-				clearAndCopyHeaders(*w, cr.Metadata.Header, *alwaysInclude)
+				clearAndCopyHeaders(*w, cr.Metadata.Header, *include)
 				suffixETag(w)
 				(*w).WriteHeader(cr.Metadata.Status)
 
@@ -337,7 +337,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					rf = reqres.FinalRoutingFlavors
 					for hname, hvals := range rf.ResponseHeaders {
 						for _, hval := range hvals {
-							alwaysInclude.Set(hname, hval)
+							include.Set(hname, hval)
 						}
 					}
 
@@ -352,8 +352,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if len(clientRevalidateHeader) > 0 && len(clientRevalidateValue) > 0 {
 								r.Header.Set(clientRevalidateHeader, clientRevalidateValue)
 							}
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-							cachingFunc(w, r, nil, alwaysInclude, &rf, false)
+							include.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+							cachingFunc(w, r, nil, include, &rf, false)
 							return
 						}
 					}
@@ -361,7 +361,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					var statusOverride *int
 					if rRange != nil && reqres.Response.StatusCode == 200 {
 						var s int
-						s, alwaysInclude = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, alwaysInclude)
+						s, include = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, include)
 						if s >= 400 {
 							(*w).WriteHeader(s)
 							return
@@ -370,12 +370,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 					dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
 					if dirs.DoNotCache() {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
+						include.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
 						cache.Finish(key, logger)
 						writeBodyFunc = writeBody
 						writer = *w
 					} else if reqres.RedirectedURL == nil && util.IsRedirect(reqres.Response.StatusCode) {
-						alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+						include.Set(caching.HeaderRrrouterCacheStatus, "pass")
 						cache.Finish(key, logger)
 						writeBodyFunc = writeBody
 						writer = *w
@@ -389,19 +389,19 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 										writeError(*w, err)
 										return
 									}
-									alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "stale")
-									cachingFunc(w, r, nil, alwaysInclude, &rf, true)
+									include.Set(caching.HeaderRrrouterCacheStatus, "stale")
+									cachingFunc(w, r, nil, include, &rf, true)
 									return
 								}
 							}
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
+							include.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 						} else {
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "miss")
+							include.Set(caching.HeaderRrrouterCacheStatus, "miss")
 						}
 						if shouldSkip {
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+							include.Set(caching.HeaderRrrouterCacheStatus, "pass")
 						}
-						alwaysInclude.Set(headerAge, "0")
+						include.Set(headerAge, "0")
 						clientWritesDisabled := false
 						if reqres.RedirectedURL != nil {
 							if urlEquals(reqres.RedirectedURL, r.URL) {
@@ -419,7 +419,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 								rr.URL = redirectedUrl
 								rr.Host = redirectedUrl.Host
 								rr.RequestURI = reqres.RedirectedURL.RequestURI()
-								cachingFunc(w, rr, rr.URL, alwaysInclude, &rf, false)
+								cachingFunc(w, rr, rr.URL, include, &rf, false)
 							}
 						}
 						if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
@@ -437,7 +437,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							if clientWritesDisabled {
 								return
 							}
-							alwaysInclude.Set(caching.HeaderRrrouterCacheStatus, "pass")
+							include.Set(caching.HeaderRrrouterCacheStatus, "pass")
 							writeBodyFunc = writeBody
 							writer = *w
 						} else {
@@ -450,7 +450,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						}
 					}
 
-					requestHandler(reqres, logger, conf)(writer, r, *alwaysInclude, statusOverride, writeBodyFunc, true, errCleanup)
+					requestHandler(reqres, logger, conf)(writer, r, *include, statusOverride, writeBodyFunc, true, errCleanup)
 					return
 				}()
 				<-done
