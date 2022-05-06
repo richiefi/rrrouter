@@ -131,7 +131,15 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 				}
 				include.Set(caching.HeaderRrrouterCacheStatus, "pass")
-				requestHandler(reqres, logger, conf)(*w, r, *include, nil, writeBody, false, nil)
+				br, bw, closeWriter := requestHandler(reqres, logger, conf)(*w, r, *include, nil)
+				defer reqres.Response.Body.Close()
+				if br == nil || bw == nil {
+					return
+				}
+				err = writeBody(br, bw, closeWriter, nil, logctx)
+				if err != nil {
+					logctx.Infof("writeBodyFunc errored: %v", err)
+				}
 				return
 			}
 
@@ -270,7 +278,15 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							include.Set(hname, hval)
 						}
 					}
-					requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil, writeBody, false, nil)
+					br, bw, closeWriter := requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil)
+					defer reqres.Response.Body.Close()
+					if br == nil || bw == nil {
+						return
+					}
+					err = writeBody(br, bw, closeWriter, nil, logctx)
+					if err != nil {
+						logctx.Infof("writeBodyFunc errored: %v", err)
+					}
 					return
 				} else if cr.Reader == nil {
 					msg := fmt.Sprintf("Reader not found after waiting. cr: %v / %v", cr.Kind, cr)
@@ -307,8 +323,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				done := make(chan bool, 1)
 				go func() {
 					defer func() { done <- true }()
-					var writeBodyFunc BodyWriter
-					var writer http.ResponseWriter
 					var errCleanup func()
 					defer cache.Finish(key, logger)
 
@@ -368,89 +382,145 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						}
 						statusOverride = &s
 					}
+
 					dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
-					if dirs.DoNotCache() {
-						include.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
+					if dirs.DoNotCache() || util.IsRedirect(reqres.Response.StatusCode) && reqres.RedirectedURL == nil {
 						cache.Finish(key, logger)
-						writeBodyFunc = writeBody
-						writer = *w
-					} else if reqres.RedirectedURL == nil && util.IsRedirect(reqres.Response.StatusCode) {
-						include.Set(caching.HeaderRrrouterCacheStatus, "pass")
-						cache.Finish(key, logger)
-						writeBodyFunc = writeBody
-						writer = *w
+						if dirs.DoNotCache() {
+							include.Set(caching.HeaderRrrouterCacheStatus, "uncacheable")
+						} else {
+							include.Set(caching.HeaderRrrouterCacheStatus, "pass")
+						}
+
+						br, bw, _ := requestHandler(reqres, logger, conf)(*w, r, *include, statusOverride)
+						defer reqres.Response.Body.Close()
+						if br == nil || bw == nil {
+							return
+						}
+						err = writeBody(br, bw, true, errCleanup, logctx)
+						if err != nil {
+							logctx.Infof("writeBodyFunc errored: %v", err)
+						}
+						return
+					}
+
+					if cr.Kind == caching.RevalidatingWriter {
+						if reqres.Response.StatusCode >= 400 {
+							dirs = caching.GetCacheControlDirectives(cr.Metadata.Header)
+							if dirs.CanStaleIfError(cr.Age) {
+								err := cr.Writer.SetRevalidateErroredAndClose(true)
+								if err != nil {
+									writeError(*w, err)
+									return
+								}
+								include.Set(caching.HeaderRrrouterCacheStatus, "stale")
+								cachingFunc(w, r, nil, include, &rf, true)
+								return
+							}
+						}
+						include.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
 					} else {
-						if cr.Kind == caching.RevalidatingWriter {
-							if reqres.Response.StatusCode >= 400 {
-								dirs = caching.GetCacheControlDirectives(cr.Metadata.Header)
-								if dirs.CanStaleIfError(cr.Age) {
-									err := cr.Writer.SetRevalidateErroredAndClose(true)
-									if err != nil {
-										writeError(*w, err)
-										return
-									}
-									include.Set(caching.HeaderRrrouterCacheStatus, "stale")
-									cachingFunc(w, r, nil, include, &rf, true)
+						include.Set(caching.HeaderRrrouterCacheStatus, "miss")
+					}
+					if shouldSkip {
+						include.Set(caching.HeaderRrrouterCacheStatus, "pass")
+					}
+					include.Set(headerAge, "0")
+					clientWritesDisabled := false
+					if reqres.RedirectedURL != nil {
+						if urlEquals(reqres.RedirectedURL, r.URL) {
+							err = usererror.CreateError(508, "Loop detected")
+							writeError(*w, err)
+							return
+						}
+						redirectedUrl := util.RedirectedURL(r, reqres.OriginalURL, reqres.RedirectedURL)
+						redirectedUrl.Scheme = reqres.OriginalURL.Scheme
+						cr.Writer.SetRedirectedURL(redirectedUrl)
+						if rf.RestartOnRedirect {
+							cr.Writer.SetClientWritesDisabled()
+							clientWritesDisabled = true
+							rr := r.Clone(r.Context())
+							rr.URL = redirectedUrl
+							rr.Host = redirectedUrl.Host
+							rr.RequestURI = reqres.RedirectedURL.RequestURI()
+							cachingFunc(w, rr, rr.URL, include, &rf, false)
+						}
+					}
+					if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
+						for _, k := range keys {
+							if k.HasFullOrigin() {
+								err = cr.Writer.ChangeKey(k)
+								if err != nil {
+									writeError(*w, err)
 									return
 								}
 							}
-							include.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-						} else {
-							include.Set(caching.HeaderRrrouterCacheStatus, "miss")
-						}
-						if shouldSkip {
-							include.Set(caching.HeaderRrrouterCacheStatus, "pass")
-						}
-						include.Set(headerAge, "0")
-						clientWritesDisabled := false
-						if reqres.RedirectedURL != nil {
-							if urlEquals(reqres.RedirectedURL, r.URL) {
-								err = usererror.CreateError(508, "Loop detected")
-								writeError(*w, err)
-								return
-							}
-							redirectedUrl := util.RedirectedURL(r, reqres.OriginalURL, reqres.RedirectedURL)
-							redirectedUrl.Scheme = reqres.OriginalURL.Scheme
-							cr.Writer.SetRedirectedURL(redirectedUrl)
-							if rf.RestartOnRedirect {
-								cr.Writer.SetClientWritesDisabled()
-								clientWritesDisabled = true
-								rr := r.Clone(r.Context())
-								rr.URL = redirectedUrl
-								rr.Host = redirectedUrl.Host
-								rr.RequestURI = reqres.RedirectedURL.RequestURI()
-								cachingFunc(w, rr, rr.URL, include, &rf, false)
-							}
-						}
-						if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
-							for _, k := range keys {
-								if k.HasFullOrigin() {
-									err = cr.Writer.ChangeKey(k)
-									if err != nil {
-										writeError(*w, err)
-										return
-									}
-								}
-							}
-						}
-						if shouldSkip {
-							if clientWritesDisabled {
-								return
-							}
-							include.Set(caching.HeaderRrrouterCacheStatus, "pass")
-							writeBodyFunc = writeBody
-							writer = *w
-						} else {
-							writeBodyFunc = makeCachingWriteBody(rRange)
-							writer = cr.Writer
-						}
-						errCleanup = func() {
-							logger.Infof("errCleanup: %v / %v", key, key.FsName())
-							_ = cr.Writer.Delete()
 						}
 					}
+					errCleanup = func() {
+						logger.Infof("errCleanup: %v / %v", key, key.FsName())
+						_ = cr.Writer.Delete()
+					}
+					if shouldSkip {
+						if clientWritesDisabled {
+							return
+						}
+						include.Set(caching.HeaderRrrouterCacheStatus, "pass")
+						br, bw, _ := requestHandler(reqres, logger, conf)(*w, r, *include, statusOverride)
+						defer reqres.Response.Body.Close()
+						if br == nil || bw == nil {
+							return
+						}
+						err = writeBody(br, bw, true, errCleanup, logctx)
+						if err != nil {
+							logctx.Infof("writeBodyFunc errored: %v", err)
+						}
+						return
+					}
 
-					requestHandler(reqres, logger, conf)(writer, r, *include, statusOverride, writeBodyFunc, true, errCleanup)
+					br, bw, _ := requestHandler(reqres, logger, conf)(cr.Writer, r, *include, statusOverride)
+					defer reqres.Response.Body.Close()
+					if br == nil || bw == nil {
+						return
+					}
+
+					err = writeBody(br, bw, true, errCleanup, logctx)
+					if err != nil {
+						logctx.Infof("writeBodyFunc errored: %v", err)
+						return
+					}
+
+					var crw caching.CachingResponseWriter = cr.Writer
+					if crw.GetClientWritesDisabled() {
+						return
+					}
+
+					fd, err := crw.WrittenFile()
+					if err != nil {
+						if errCleanup != nil {
+							errCleanup()
+						}
+						logctx.Infof("writeBodyFunc errored: %v", err)
+						return
+					}
+					if fd != nil {
+						defer fd.Close()
+					}
+
+					fi, err := fd.Stat()
+					if err != nil {
+						if errCleanup != nil {
+							errCleanup()
+						}
+						logctx.Infof("writeBodyFunc errored: %v", err)
+						return
+					}
+
+					_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rRange, logctx)
+					if err != nil {
+						logctx.Infof("sendBody errored: %v", err)
+						return
+					}
 					return
 				}()
 				<-done
@@ -527,19 +597,19 @@ func requestWithRedirect(r *http.Request, location string) (*http.Request, error
 
 type BodyWriter func(reader io.ReadCloser, writer io.Writer, closeWriter bool, errCleanup func(), logctx *apexlog.Entry) error
 
-func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *config.Config) func(http.ResponseWriter, *http.Request, http.Header, *int, BodyWriter, bool, func()) {
-	return func(w http.ResponseWriter, r *http.Request, alwaysInclude http.Header, statusOverride *int, writeBodyFunc BodyWriter, forceCloseWriter bool, errCleanup func()) {
+func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *config.Config) func(http.ResponseWriter, *http.Request, http.Header, *int) (io.ReadCloser, http.ResponseWriter, bool) {
+	return func(w http.ResponseWriter, r *http.Request, alwaysInclude http.Header, statusOverride *int) (io.ReadCloser, http.ResponseWriter, bool) {
 		logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.requestHandler"})
 		logctx.Debug("Got request")
 
 		var err error
-		defer reqres.Response.Body.Close()
+
 		logctx = logctx.WithField("proxiedURL", reqres.Response.Request.URL)
 
 		if w == nil {
 			// ch19238:
 			logctx.Errorf("writer has gone unexpectedly for %v", reqres.Response.Request.URL)
-			return
+			return nil, nil, false
 		}
 		header := w.Header()
 		header = clearAndCopyHeaders(header, reqres.Response.Header, alwaysInclude)
@@ -552,12 +622,11 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			reader, err = util.NewGzipDecodingReader(reqres.Response.Body)
 			if err != nil {
 				writeError(w, err)
-				return
+				return nil, nil, false
 			}
 
 			header.Del(headerContentLengthKey)
 			header.Del(headerContentEncodingKey)
-
 		} else {
 			reader = reqres.Response.Body
 		}
@@ -567,7 +636,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			writer, err = NewEncodingResponseWriter(w, reqres.Recompression.Add, conf, logger)
 			if err != nil {
 				writeError(w, err)
-				return
+				return nil, nil, false
 			}
 
 			header.Del(headerContentLengthKey)
@@ -596,14 +665,11 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 		if status == 304 {
 			util.AllowHeaders(writer.Header(), util.HeadersAllowedIn304)
 			writer.WriteHeader(status)
-			return
+			return nil, nil, false
 		}
 		writer.WriteHeader(status)
 
-		err = writeBodyFunc(reader, writer, closeWriter || forceCloseWriter, errCleanup, logctx)
-		if err != nil {
-			logctx.Infof("writeBodyFunc errored: %v", err)
-		}
+		return reader, writer, closeWriter
 	}
 }
 
@@ -719,63 +785,6 @@ func writeBody(reader io.ReadCloser, writer io.Writer, closeWriter bool, errClea
 			}
 			return err
 		}
-	}
-}
-
-func makeCachingWriteBody(rr *requestRange) BodyWriter {
-	return func(reader io.ReadCloser, writer io.Writer, closeWriter bool, errCleanup func(), logctx *apexlog.Entry) error {
-		err := writeBody(reader, writer, closeWriter, errCleanup, logctx)
-		if err != nil {
-			return err
-		}
-
-		var crw caching.CachingResponseWriter
-		var ok bool
-		crw, ok = writer.(caching.CachingResponseWriter)
-		if !ok {
-			var erw *encodingResponseWriter
-			if erw, ok = writer.(*encodingResponseWriter); ok {
-				if erw.wrappedWriter != nil {
-					crw, ok = erw.wrappedWriter.(caching.CachingResponseWriter)
-				}
-			}
-		}
-		if !ok {
-			if errCleanup != nil {
-				errCleanup()
-			}
-			panic(fmt.Sprintf("Caching writer missing"))
-		}
-
-		if crw.GetClientWritesDisabled() {
-			return nil
-		}
-
-		fd, err := crw.WrittenFile()
-		if err != nil {
-			if errCleanup != nil {
-				errCleanup()
-			}
-			return err
-		}
-		if fd != nil {
-			defer fd.Close()
-		}
-
-		fi, err := fd.Stat()
-		if err != nil {
-			if errCleanup != nil {
-				errCleanup()
-			}
-			return err
-		}
-
-		_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rr, logctx)
-		if err != nil {
-			return err
-		}
-
-		return nil
 	}
 }
 
