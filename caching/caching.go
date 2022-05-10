@@ -183,7 +183,7 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 	if err != nil {
 		if !os.IsNotExist(err) {
 			c.logger.WithField("error", err).Error(fmt.Sprintf("Storage %v errored when fetching Key %v\n", (*s).Id(), k.FsName()))
-			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, IsStale: false}, k, err
+			return CacheResult{Kind: NotFoundReader, Reader: nil, Writer: nil, Metadata: CacheMetadata{}, Age: 0, Stale: Stale{IsStale: false}}, k, err
 		}
 		k = notFoundPreferredKey(keys)
 		//logctx.Debugf("Miss: %v // %v", k, k.FsName())
@@ -249,17 +249,17 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 
 				if clientEtag == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 					defer rc.Close()
-					return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+					return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, Stale{IsStale: false}}, k, nil
 				}
 			} else if token == nil && normalizeEtag(etag) == normalizeEtag(sm.ResponseHeader.Get("etag")) {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, Stale{IsStale: false}}, k, nil
 			}
 		} else if modifiedSince := k.originalHeaders.Get("if-modified-since"); len(modifiedSince) > 0 {
 			mdModifiedSince := sm.ResponseHeader.Get("last-modified")
 			if mdModifiedSince == modifiedSince {
 				defer rc.Close()
-				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, false}, k, nil
+				return CacheResult{Found, nil, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: 304, Size: 0}, age, Stale{IsStale: false}}, k, nil
 			}
 		}
 	}
@@ -281,10 +281,15 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 		}
 		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}
 		cr.Age = age
+		if cr.Kind == RevalidatingWriter {
+			cr.Reader = rc
+			cr.Stale.IsStale = isStale
+			cr.Stale.UseWhileRevalidate = dirs.CanStaleWhileRevalidate(age)
+		}
 		return cr, k, nil
 	}
 
-	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
+	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}, age, Stale{IsStale: isStale}}, k, nil
 }
 
 func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) (CacheResult, error) {
@@ -532,7 +537,12 @@ type CacheResult struct {
 	WaitChan *chan KeyInfo
 	Metadata CacheMetadata
 	Age      int64
-	IsStale  bool
+	Stale    Stale
+}
+
+type Stale struct {
+	IsStale            bool
+	UseWhileRevalidate bool
 }
 
 type KeyInfo struct {

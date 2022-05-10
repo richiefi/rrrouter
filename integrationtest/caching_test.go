@@ -89,7 +89,7 @@ func TestServer_client_gets_and_proxy_rule_matches_and_cache_get_is_called(t *te
 		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, caching.Stale{IsStale: false}}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -237,7 +237,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		getCalled += 1
 		if getCalled == 2 {
 			f := tempFile(t, []byte("ab"))
-			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+			return caching.CacheResult{caching.Found, f, nil, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, caching.Stale{IsStale: false}}, keys[0], nil
 		}
 
 		sw := NewTestStorageWriter(
@@ -257,7 +257,7 @@ func TestCache_client_gets_twice_and_cache_is_written_to_only_once(t *testing.T)
 		cw, _ := sw.(caching.CacheWriter)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
 
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, caching.Stale{IsStale: false}}, keys[0], nil
 	})
 
 	listener := listenerWithCache(tc, rules, sh.Logger, conf)
@@ -1954,7 +1954,7 @@ func TestCache_restart_on_redirect_relative_redirects_use_destination_host(t *te
 		cw, _ := sw.(caching.CacheWriter)
 		require.NotNil(t, cw)
 		writer := caching.NewCachingResponseWriter(w, cw, l)
-		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundWriter, nil, writer, nil, caching.CacheMetadata{Header: nil, Status: 200}, 0, caching.Stale{IsStale: false}}, keys[0], nil
 	})
 
 	listener = listenerWithCache(tc, rules, sh.Logger, testConfig())
@@ -2276,11 +2276,11 @@ type testCache struct {
 
 func (c *testCache) Get(ctx context.Context, s string, ri int, skipRevalidate bool, keys []caching.Key, w http.ResponseWriter, l *apexlog.Logger) (caching.CacheResult, caching.Key, error) {
 	if s != c.cacheId {
-		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, false}, keys[0], nil
+		return caching.CacheResult{caching.NotFoundReader, nil, nil, nil, caching.CacheMetadata{Header: http.Header{}, Status: 200}, 0, caching.Stale{IsStale: false}}, keys[0], nil
 	}
 
 	if e := c.cachedEntry; e != nil {
-		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age), false}, keys[0], nil
+		return caching.CacheResult{caching.Found, e.reader, nil, nil, e.headerStatus, int64(e.age), caching.Stale{IsStale: false}}, keys[0], nil
 	}
 
 	return c.get(s, keys, w, l)
