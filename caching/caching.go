@@ -639,7 +639,7 @@ func (crw *cachingResponseWriter) Write(ba []byte) (int, error) {
 }
 
 func (crw *cachingResponseWriter) WriteHeader(statusCode int) {
-	if !crw.clientWritesDisabled {
+	if !crw.clientWritesDisabled && statusCode == 304 {
 		crw.clientWriter.WriteHeader(statusCode)
 	}
 	var cleanedHeaders http.Header

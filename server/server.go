@@ -90,8 +90,8 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 		defer m.ReportAndClose(time.Now())
 		defer sentry.Recover()
 
-		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors, bool)
-		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, include *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool) {
+		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors, bool, bool)
+		cachingFunc = func(w *http.ResponseWriter, r *http.Request, overrideURL *url.URL, include *http.Header, frf *proxy.RoutingFlavors, skipRevalidate bool, servedAndRevalidating bool) {
 			logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.cachingHandler"})
 			rf := router.GetRoutingFlavors(r)
 			r = preprocessHeaders(r, rf.RequestHeaders)
@@ -121,7 +121,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					rr.URL = redirectedUrl
 					rr.Host = redirectedUrl.Host
 					rr.RequestURI = reqres.RedirectedURL.RequestURI()
-					cachingFunc(w, rr, nil, include, &rf, false)
+					cachingFunc(w, rr, nil, include, &rf, false, servedAndRevalidating)
 					return
 				}
 
@@ -131,7 +131,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 				}
 				include.Set(caching.HeaderRrrouterCacheStatus, "pass")
-				br, bw, closeWriter := requestHandler(reqres, logger, conf)(*w, r, *include, nil)
+				_, br, bw, closeWriter := requestHandler(reqres, logger, conf)(*w, r, *include, nil)
 				defer reqres.Response.Body.Close()
 				if br == nil || bw == nil {
 					return
@@ -206,8 +206,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				break
 			}
 
-			switch cr.Kind {
-			case caching.Found:
+			var found = func(cr caching.CacheResult) {
 				if rf.RestartOnRedirect && util.IsRedirect(cr.Metadata.Status) {
 					rr, err := requestWithRedirect(r, cr.Metadata.RedirectedURL)
 					if err != nil {
@@ -215,12 +214,17 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, nil, &rf, false)
+					cachingFunc(w, rr, rr.URL, nil, &rf, false, servedAndRevalidating)
+					return
+				}
+
+				if servedAndRevalidating {
+					cache.Finish(key, logger)
 					return
 				}
 
 				if len(include.Get(caching.HeaderRrrouterCacheStatus)) == 0 {
-					if cr.IsStale {
+					if cr.Stale.IsStale {
 						include.Set(caching.HeaderRrrouterCacheStatus, "stale")
 					} else {
 						include.Set(caching.HeaderRrrouterCacheStatus, "hit")
@@ -266,6 +270,12 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 					}
 				}
 				return
+			}
+
+			switch cr.Kind {
+			case caching.Found:
+				found(cr)
+				return
 			case caching.NotFoundReader, caching.RevalidatingReader:
 				if cr.Reader == nil && shouldSkipIfNotCached {
 					reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
@@ -278,7 +288,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							include.Set(hname, hval)
 						}
 					}
-					br, bw, closeWriter := requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil)
+					_, br, bw, closeWriter := requestHandler(reqres, logger, conf)(*w, r, http.Header{caching.HeaderRrrouterCacheStatus: []string{"uncacheable"}}, nil)
 					defer reqres.Response.Body.Close()
 					if br == nil || bw == nil {
 						return
@@ -301,7 +311,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						writeError(*w, err)
 						return
 					}
-					cachingFunc(w, rr, rr.URL, include, &rf, false)
+					cachingFunc(w, rr, rr.URL, include, &rf, false, servedAndRevalidating)
 					return
 				}
 
@@ -320,6 +330,19 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				}
 				return
 			case caching.NotFoundWriter, caching.RevalidatingWriter:
+				if cr.Kind == caching.RevalidatingWriter && cr.Stale.IsStale && cr.Stale.UseWhileRevalidate {
+					fd, err := os.Open(cr.Reader.Name())
+					if err != nil {
+						logctx.WithError(err).Error("Unable to open stale reader fd")
+						writeError(*w, err)
+						return
+					}
+					cr.Reader = fd
+					cr.Writer.SetClientWritesDisabled()
+					found(cr)
+					servedAndRevalidating = true
+				}
+
 				done := make(chan bool, 1)
 				go func() {
 					defer func() { done <- true }()
@@ -367,7 +390,10 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 								r.Header.Set(clientRevalidateHeader, clientRevalidateValue)
 							}
 							include.Set(caching.HeaderRrrouterCacheStatus, "revalidated")
-							cachingFunc(w, r, nil, include, &rf, false)
+							if cr.Writer.GetClientWritesDisabled() {
+								return
+							}
+							cachingFunc(w, r, nil, include, &rf, false, servedAndRevalidating)
 							return
 						}
 					}
@@ -392,7 +418,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							include.Set(caching.HeaderRrrouterCacheStatus, "pass")
 						}
 
-						br, bw, _ := requestHandler(reqres, logger, conf)(*w, r, *include, statusOverride)
+						_, br, bw, _ := requestHandler(reqres, logger, conf)(*w, r, *include, statusOverride)
 						defer reqres.Response.Body.Close()
 						if br == nil || bw == nil {
 							return
@@ -414,7 +440,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 									return
 								}
 								include.Set(caching.HeaderRrrouterCacheStatus, "stale")
-								cachingFunc(w, r, nil, include, &rf, true)
+								cachingFunc(w, r, nil, include, &rf, true, servedAndRevalidating)
 								return
 							}
 						}
@@ -426,7 +452,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						include.Set(caching.HeaderRrrouterCacheStatus, "pass")
 					}
 					include.Set(headerAge, "0")
-					clientWritesDisabled := false
 					if reqres.RedirectedURL != nil {
 						if urlEquals(reqres.RedirectedURL, r.URL) {
 							err = usererror.CreateError(508, "Loop detected")
@@ -438,12 +463,14 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						cr.Writer.SetRedirectedURL(redirectedUrl)
 						if rf.RestartOnRedirect {
 							cr.Writer.SetClientWritesDisabled()
-							clientWritesDisabled = true
 							rr := r.Clone(r.Context())
 							rr.URL = redirectedUrl
 							rr.Host = redirectedUrl.Host
 							rr.RequestURI = reqres.RedirectedURL.RequestURI()
-							cachingFunc(w, rr, rr.URL, include, &rf, false)
+							cachingFunc(w, rr, rr.URL, include, &rf, false, servedAndRevalidating)
+							if shouldSkip {
+								return
+							}
 						}
 					}
 					if dirs.VaryByOrigin() && key.HasOpaqueOrigin() {
@@ -462,11 +489,11 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						_ = cr.Writer.Delete()
 					}
 					if shouldSkip {
-						if clientWritesDisabled {
+						if servedAndRevalidating {
 							return
 						}
 						include.Set(caching.HeaderRrrouterCacheStatus, "pass")
-						br, bw, _ := requestHandler(reqres, logger, conf)(*w, r, *include, statusOverride)
+						_, br, bw, _ := requestHandler(reqres, logger, conf)(*w, r, *include, statusOverride)
 						defer reqres.Response.Body.Close()
 						if br == nil || bw == nil {
 							return
@@ -478,20 +505,19 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						return
 					}
 
-					br, bw, _ := requestHandler(reqres, logger, conf)(cr.Writer, r, *include, statusOverride)
+					crw := cr.Writer
+					status, br, bw, _ := requestHandler(reqres, logger, conf)(crw, r, *include, statusOverride)
 					defer reqres.Response.Body.Close()
 					if br == nil || bw == nil {
 						return
 					}
-
 					err = writeBody(br, bw, true, errCleanup, logctx)
 					if err != nil {
 						logctx.Infof("writeBodyFunc errored: %v", err)
 						return
 					}
 
-					var crw caching.CachingResponseWriter = cr.Writer
-					if crw.GetClientWritesDisabled() {
+					if crw.GetClientWritesDisabled() || servedAndRevalidating {
 						return
 					}
 
@@ -516,7 +542,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						return
 					}
 
-					_, err = sendBody(crw.GetClientWriter(), fd, fi.Size(), rRange, logctx)
+					cw := crw.GetClientWriter()
+					cw.WriteHeader(status)
+					_, err = sendBody(cw, fd, fi.Size(), rRange, logctx)
 					if err != nil {
 						logctx.Infof("sendBody errored: %v", err)
 						return
@@ -526,7 +554,7 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 				<-done
 			}
 		}
-		cachingFunc(&ow, or, nil, nil, nil, false)
+		cachingFunc(&ow, or, nil, nil, nil, false, false)
 	}
 }
 
@@ -597,8 +625,8 @@ func requestWithRedirect(r *http.Request, location string) (*http.Request, error
 
 type BodyWriter func(reader io.ReadCloser, writer io.Writer, closeWriter bool, errCleanup func(), logctx *apexlog.Entry) error
 
-func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *config.Config) func(http.ResponseWriter, *http.Request, http.Header, *int) (io.ReadCloser, http.ResponseWriter, bool) {
-	return func(w http.ResponseWriter, r *http.Request, alwaysInclude http.Header, statusOverride *int) (io.ReadCloser, http.ResponseWriter, bool) {
+func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *config.Config) func(http.ResponseWriter, *http.Request, http.Header, *int) (int, io.ReadCloser, http.ResponseWriter, bool) {
+	return func(w http.ResponseWriter, r *http.Request, alwaysInclude http.Header, statusOverride *int) (int, io.ReadCloser, http.ResponseWriter, bool) {
 		logctx := logger.WithFields(apexlog.Fields{"url": r.URL, "func": "server.requestHandler"})
 		logctx.Debug("Got request")
 
@@ -609,7 +637,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 		if w == nil {
 			// ch19238:
 			logctx.Errorf("writer has gone unexpectedly for %v", reqres.Response.Request.URL)
-			return nil, nil, false
+			return 0, nil, nil, false
 		}
 		header := w.Header()
 		header = clearAndCopyHeaders(header, reqres.Response.Header, alwaysInclude)
@@ -622,7 +650,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			reader, err = util.NewGzipDecodingReader(reqres.Response.Body)
 			if err != nil {
 				writeError(w, err)
-				return nil, nil, false
+				return 0, nil, nil, false
 			}
 
 			header.Del(headerContentLengthKey)
@@ -636,7 +664,7 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 			writer, err = NewEncodingResponseWriter(w, reqres.Recompression.Add, conf, logger)
 			if err != nil {
 				writeError(w, err)
-				return nil, nil, false
+				return 0, nil, nil, false
 			}
 
 			header.Del(headerContentLengthKey)
@@ -665,11 +693,11 @@ func requestHandler(reqres *proxy.RequestResult, logger *apexlog.Logger, conf *c
 		if status == 304 {
 			util.AllowHeaders(writer.Header(), util.HeadersAllowedIn304)
 			writer.WriteHeader(status)
-			return nil, nil, false
+			return 0, nil, nil, false
 		}
 		writer.WriteHeader(status)
 
-		return reader, writer, closeWriter
+		return status, reader, writer, closeWriter
 	}
 }
 
