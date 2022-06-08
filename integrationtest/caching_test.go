@@ -1118,7 +1118,6 @@ func TestCache_stale_if_error_readers_get_stale(t *testing.T) {
 		if timesOriginHit >= 2 {
 			time.Sleep(time.Millisecond * 200)
 			originStatus = 500
-			fmt.Println("returning 500")
 			w.WriteHeader(originStatus)
 			return
 		}
@@ -1127,7 +1126,6 @@ func TestCache_stale_if_error_readers_get_stale(t *testing.T) {
 		for k, v := range hdrs {
 			h.Set(k, v)
 		}
-		fmt.Println("returning 200")
 		w.WriteHeader(originStatus)
 		_, _ = w.Write([]byte("ab"))
 	}))
