@@ -187,7 +187,10 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 		}
 		k = notFoundPreferredKey(keys)
 		//logctx.Debugf("Miss: %v // %v", k, k.FsName())
-		cr := c.getReaderOrWriter(ctx, cacheId, k, w, false, false, logctx)
+		cr, err := c.getReaderOrWriter(ctx, cacheId, k, w, false, false, logctx)
+		if err != nil {
+			return CacheResult{}, keys[0], err
+		}
 		return cr, k, nil
 	}
 
@@ -272,7 +275,10 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 			logctx.WithError(err).Errorf("Could not close an optimistically opened fd, which then had to be revalidated")
 		}
 
-		cr := c.getReaderOrWriter(ctx, cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
+		cr, err := c.getReaderOrWriter(ctx, cacheId, k, w, true, dirs.CanStaleWhileRevalidate(age), logctx)
+		if err != nil {
+			return CacheResult{}, keys[0], err
+		}
 		cr.Metadata = CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}
 		cr.Age = age
 		return cr, k, nil
@@ -281,7 +287,7 @@ func (c *cache) Get(ctx context.Context, cacheId string, forceRevalidate int, sk
 	return CacheResult{Found, rc, nil, nil, CacheMetadata{Header: sm.ResponseHeader, Status: sm.Status, Size: sm.Size, FdSize: sm.FdSize, RedirectedURL: sm.RedirectedURL}, age, isStale}, k, nil
 }
 
-func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) CacheResult {
+func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w http.ResponseWriter, isRevalidating bool, staleWhileRevalidate bool, logctx *apexlog.Logger) (CacheResult, error) {
 	rk := k.FsName()
 	c.waitingReadersLock.Lock()
 	//c.logger.Debugf("Checking if %v exists", rk)
@@ -291,7 +297,7 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 			c.waitingReadersLock.Unlock()
 			c.logger.Debugf("Released lock for stale reader attempt: %v", rk)
 			cr, _, _ := c.Get(ctx, cacheId, 0, true, []Key{k}, w, logctx)
-			return cr
+			return cr, nil
 		}
 		defer c.waitingReadersLock.Unlock()
 		wc := make(chan KeyInfo, 1)
@@ -307,18 +313,22 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 		} else {
 			kind = NotFoundReader
 		}
-		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0, false}
+		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0, false}, nil
 	} else {
 		c.waitingReaders[rk] = make([]*chanWithTime, 0)
 		defer c.waitingReadersLock.Unlock()
-		writer := NewCachingResponseWriter(w, c.getWriter(cacheId, k, isRevalidating), logctx)
+		cw := c.getWriter(cacheId, k, isRevalidating)
+		if cw == nil {
+			return CacheResult{NotFoundWriter, nil, nil, nil, CacheMetadata{}, 0, false}, errors.New("Could not get writer")
+		}
+		writer := NewCachingResponseWriter(w, cw, logctx)
 		c.logger.Debugf("Locking for writer: %v", rk)
 		if isRevalidating {
 			kind = RevalidatingWriter
 		} else {
 			kind = NotFoundWriter
 		}
-		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0, false}
+		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0, false}, nil
 
 	}
 }
