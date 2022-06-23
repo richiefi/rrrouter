@@ -378,9 +378,21 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						}
 					}
 
+					var statusOverride *int
+					if rRange != nil && reqres.Response.StatusCode == 200 {
+						var s int
+						s, include = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, include)
+						if s >= 400 {
+							(*w).WriteHeader(s)
+							return
+						}
+						statusOverride = &s
+					}
+
+					dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
 					if len(usedRevalidateHeader) > 0 {
 						r.Header.Del(usedRevalidateHeader)
-						if reqres.Response.StatusCode == 304 {
+						if reqres.Response.StatusCode == 304 && !dirs.DoNotCache() {
 							err := cr.Writer.SetRevalidatedAndClose(reqres.Response.Header)
 							if err != nil {
 								writeError(*w, err)
@@ -398,18 +410,6 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 						}
 					}
 
-					var statusOverride *int
-					if rRange != nil && reqres.Response.StatusCode == 200 {
-						var s int
-						s, include = setRangedHeaders(rRange, reqres.Response.ContentLength, reqres.Response.StatusCode, include)
-						if s >= 400 {
-							(*w).WriteHeader(s)
-							return
-						}
-						statusOverride = &s
-					}
-
-					dirs := caching.GetCacheControlDirectives(reqres.Response.Header)
 					if dirs.DoNotCache() || util.IsRedirect(reqres.Response.StatusCode) && reqres.RedirectedURL == nil {
 						cache.Finish(key, logger)
 						if dirs.DoNotCache() {
