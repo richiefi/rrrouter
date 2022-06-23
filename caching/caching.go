@@ -318,13 +318,13 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 		} else {
 			kind = NotFoundReader
 		}
-		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0, false}, nil
+		return CacheResult{kind, nil, nil, &wc, CacheMetadata{}, 0, Stale{IsStale: false}}, nil
 	} else {
 		c.waitingReaders[rk] = make([]*chanWithTime, 0)
 		defer c.waitingReadersLock.Unlock()
 		cw := c.getWriter(cacheId, k, isRevalidating)
 		if cw == nil {
-			return CacheResult{NotFoundWriter, nil, nil, nil, CacheMetadata{}, 0, false}, errors.New("Could not get writer")
+			return CacheResult{NotFoundWriter, nil, nil, nil, CacheMetadata{}, 0, Stale{IsStale: false}}, errors.New("Could not get writer")
 		}
 		writer := NewCachingResponseWriter(w, cw, logctx)
 		c.logger.Debugf("Locking for writer: %v", rk)
@@ -333,8 +333,7 @@ func (c *cache) getReaderOrWriter(ctx context.Context, cacheId string, k Key, w 
 		} else {
 			kind = NotFoundWriter
 		}
-		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0, false}, nil
-
+		return CacheResult{kind, nil, writer, nil, CacheMetadata{}, 0, Stale{IsStale: false}}, nil
 	}
 }
 
