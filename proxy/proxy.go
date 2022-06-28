@@ -125,11 +125,9 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 			},
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
-		MaxIdleConns:          1000,
-		IdleConnTimeout:       10 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		MaxIdleConnsPerHost:   1000,
+		DisableKeepAlives:     true,
 	}
 
 	return &router{
