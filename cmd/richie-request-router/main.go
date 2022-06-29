@@ -14,6 +14,8 @@ import (
 	"syscall"
 	"time"
 
+	_ "net/http/pprof"
+
 	"github.com/alecthomas/kong"
 	apexlog "github.com/apex/log"
 	apexlogjson "github.com/apex/log/handlers/json"
@@ -64,6 +66,8 @@ func main() {
 		}
 		defer sentry.Flush(2 * time.Second)
 	}
+
+	go http.ListenAndServe("localhost:6060", nil)
 
 	err := ctx.Run(&cliContext{Debug: cli.Debug})
 	ctx.FatalIfErrorf(err)
