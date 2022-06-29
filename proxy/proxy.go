@@ -117,7 +117,7 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   15 * time.Second,
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
 			Resolver: &net.Resolver{
