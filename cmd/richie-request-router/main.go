@@ -67,7 +67,7 @@ func main() {
 		defer sentry.Flush(2 * time.Second)
 	}
 
-	go http.ListenAndServe("localhost:6060", nil)
+	go http.ListenAndServe("localhost:7070", nil)
 
 	err := ctx.Run(&cliContext{Debug: cli.Debug})
 	ctx.FatalIfErrorf(err)
