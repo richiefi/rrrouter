@@ -117,7 +117,7 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 	transport := &http.Transport{
 		Proxy: http.ProxyFromEnvironment,
 		DialContext: (&net.Dialer{
-			Timeout:   30 * time.Second,
+			Timeout:   15 * time.Second,
 			KeepAlive: 30 * time.Second,
 			DualStack: true,
 			Resolver: &net.Resolver{
@@ -125,9 +125,13 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 			},
 		}).DialContext,
 		ForceAttemptHTTP2:     true,
+		MaxConnsPerHost:       1000,
+		MaxIdleConns:          1000,
+		IdleConnTimeout:       10 * time.Second,
 		TLSHandshakeTimeout:   10 * time.Second,
 		ExpectContinueTimeout: 1 * time.Second,
-		DisableKeepAlives:     true,
+		ResponseHeaderTimeout: 20 * time.Second,
+		MaxIdleConnsPerHost:   1000,
 	}
 
 	return &router{
