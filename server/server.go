@@ -36,7 +36,12 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache
 		return
 	}
 	addr := ":" + strconv.Itoa(conf.Port)
-	readTimeout := 5 * time.Second
+	readHeaderTimeout := 5 * time.Second
+	rht := os.Getenv("SERVER_READ_HEADER_TIMEOUT_SECONDS")
+	if v, err := strconv.Atoi(rht); err == nil {
+		readHeaderTimeout = time.Duration(v) * time.Second
+	}
+	readTimeout := 240 * time.Second
 	rt := os.Getenv("SERVER_READ_TIMEOUT_SECONDS")
 	if v, err := strconv.Atoi(rt); err == nil {
 		readTimeout = time.Duration(v) * time.Second
@@ -47,10 +52,11 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache
 		writeTimeout = time.Duration(v) * time.Second
 	}
 	serv := &http.Server{
-		Addr:         addr,
-		Handler:      smux,
-		ReadTimeout:  readTimeout,
-		WriteTimeout: writeTimeout}
+		Addr:              addr,
+		Handler:           smux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout}
 	if tlsConfigValid {
 		err = serv.ListenAndServeTLS(conf.TLSCertPath, conf.TLSKeyPath)
 	} else {
