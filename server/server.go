@@ -35,10 +35,32 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache
 		logger.WithField("error", err.Error()).Fatal("Error starting HTTP server")
 		return
 	}
+	addr := ":" + strconv.Itoa(conf.Port)
+	readHeaderTimeout := 5 * time.Second
+	rht := os.Getenv("SERVER_READ_HEADER_TIMEOUT_SECONDS")
+	if v, err := strconv.Atoi(rht); err == nil {
+		readHeaderTimeout = time.Duration(v) * time.Second
+	}
+	readTimeout := 240 * time.Second
+	rt := os.Getenv("SERVER_READ_TIMEOUT_SECONDS")
+	if v, err := strconv.Atoi(rt); err == nil {
+		readTimeout = time.Duration(v) * time.Second
+	}
+	writeTimeout := 30 * time.Second
+	wt := os.Getenv("SERVER_WRITE_TIMEOUT_SECONDS")
+	if v, err := strconv.Atoi(wt); err == nil {
+		writeTimeout = time.Duration(v) * time.Second
+	}
+	serv := &http.Server{
+		Addr:              addr,
+		Handler:           smux,
+		ReadHeaderTimeout: readHeaderTimeout,
+		ReadTimeout:       readTimeout,
+		WriteTimeout:      writeTimeout}
 	if tlsConfigValid {
-		err = http.ListenAndServeTLS(":"+strconv.Itoa(conf.Port), conf.TLSCertPath, conf.TLSKeyPath, smux)
+		err = serv.ListenAndServeTLS(conf.TLSCertPath, conf.TLSKeyPath)
 	} else {
-		err = http.ListenAndServe(":"+strconv.Itoa(conf.Port), smux)
+		err = serv.ListenAndServe()
 	}
 	if err != nil {
 		logger.WithField("error", err).Fatal("Error starting HTTP server")
