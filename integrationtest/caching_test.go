@@ -1259,6 +1259,7 @@ func TestCache_stale_while_revalidate_serves_readers_with_stale_while_writer_rev
 	require.Equal(t, 3, stale)
 	require.Equal(t, 2, timesOriginHit)
 
+	time.Sleep(100 * time.Millisecond)
 	resp = sh.getURLQuery("/t/asdf", listener.URL, url.Values{}, http.Header{})
 	defer resp.Body.Close()
 	body = sh.readBody(resp)
@@ -1335,6 +1336,7 @@ func TestCache_stale_while_revalidate_returns_stale_and_updates_a_restart_on_red
 	age, err = strconv.Atoi(resp.Header.Get("age"))
 	require.Nil(t, err)
 	require.True(t, age >= 60 && age <= 61)
+	time.Sleep(50 * time.Millisecond)
 	require.Equal(t, 4, timesOriginHit)
 
 	now = now.Add(time.Second * 1)
@@ -1357,6 +1359,7 @@ func TestCache_stale_while_revalidate_returns_stale_and_updates_a_restart_on_red
 	age, err = strconv.Atoi(resp.Header.Get("age"))
 	require.Nil(t, err)
 	require.InDelta(t, 120, age, 2)
+	time.Sleep(50 * time.Millisecond)
 	require.Equal(t, 5, timesOriginHit)
 
 	now = now.Add(time.Minute * 10)
@@ -1368,6 +1371,7 @@ func TestCache_stale_while_revalidate_returns_stale_and_updates_a_restart_on_red
 	age, err = strconv.Atoi(resp.Header.Get("age"))
 	require.Nil(t, err)
 	require.True(t, age <= 1)
+	time.Sleep(50 * time.Millisecond)
 	require.Equal(t, 7, timesOriginHit)
 }
 
