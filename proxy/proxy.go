@@ -237,7 +237,7 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 			}
 			return r.routeRequest(ctx, urlMatch, req, nil, nil, logctx)
 		} else if err != nil {
-			logctx.WithError(err).Error("Error performing main request")
+			logctx.WithField("url", req.RequestURI).WithError(err).Error("Error performing main request")
 			return nil, err
 		}
 		logctx.Debug("Successfully performed request")
