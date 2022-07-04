@@ -364,7 +364,9 @@ func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Co
 							usedRevalidateHeader = clientHeader
 						}
 					}
-					r = r.WithContext(context.Background()) // Abandon client-bound context as they might disconnect
+					toctx, cancelCtx := context.WithTimeout(context.Background(), time.Second*30)
+					defer cancelCtx()
+					r = r.WithContext(toctx) // Abandon client-bound context as they might disconnect and set a timeout
 					reqres, err := router.RouteRequest(ctx, r, overrideURL, rf.Rule)
 					if err != nil {
 						writeError(*w, err)
