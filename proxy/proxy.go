@@ -213,6 +213,7 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 
 	var mainResp *http.Response
 	var redirectedURL *url.URL
+	st := time.Now()
 	if requestsResult.mainRequest != nil {
 		mainResp, err = r.performRequest(requestsResult.mainRequest, bodyData, retryRule == nil)
 		if mainResp != nil && util.IsRedirect(mainResp.StatusCode) {
@@ -237,7 +238,7 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 			}
 			return r.routeRequest(ctx, urlMatch, req, nil, nil, logctx)
 		} else if err != nil {
-			logctx.WithField("url", req.RequestURI).WithError(err).Error("Error performing main request")
+			logctx.WithField("url", req.RequestURI).WithField("time", time.Now().Sub(st)).WithError(err).Error("Error performing main request")
 			return nil, err
 		}
 		logctx.Debug("Successfully performed request")
