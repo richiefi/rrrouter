@@ -2763,7 +2763,7 @@ func listenerWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.
 	return httptest.NewServer(smux)
 }
 
-func listenerAndRouterWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.Logger, conf *config.Config) (*httptest.Server, proxy.Router) {
+func listenerAndRouterWithCache(cache caching.Cache, rules *proxy.Rules, logger *apexlog.Logger, conf *config.Config) (*httptest.Server, *proxy.Router) {
 	router := proxy.NewRouter(rules, logger, conf)
 	smux := http.NewServeMux()
 	server.ConfigureServeMux(smux, conf, router, logger, cache)

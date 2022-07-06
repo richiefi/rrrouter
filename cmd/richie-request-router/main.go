@@ -122,7 +122,7 @@ func (s *StartCmd) Run(ctx *cliContext) error {
 	return nil
 }
 
-func configReloader(c chan bool, router proxy.Router, cache caching.Cache, logger *apexlog.Logger) {
+func configReloader(c chan bool, router *proxy.Router, cache caching.Cache, logger *apexlog.Logger) {
 	for {
 		<-c
 		mappingData, err := readMapping(gMappingURL, gMappingFile)

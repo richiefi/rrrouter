@@ -61,7 +61,7 @@ func newTestLogWriter(t *testing.T) io.Writer {
 	return &tlw
 }
 
-func (sh *ServerHelper) runProxy(router proxy.Router) *httptest.Server {
+func (sh *ServerHelper) runProxy(router *proxy.Router) *httptest.Server {
 	smux := http.NewServeMux()
 	conf := &config.Config{}
 	server.ConfigureServeMux(smux, conf, router, sh.Logger, nil)

@@ -37,7 +37,7 @@ func TestTargetURL(t *testing.T) {
 		},
 		logger: logger,
 	}
-	router := &router{
+	router := &Router{
 		rules:  rules,
 		logger: logger,
 	}

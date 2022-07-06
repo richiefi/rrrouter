@@ -26,7 +26,7 @@ import (
 )
 
 // Run is the main entrypoint used to s the server.
-func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
+func Run(conf *config.Config, router *proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
 	smux := http.NewServeMux()
 	ConfigureServeMux(smux, conf, router, logger, cache)
 	logger.WithFields(apexlog.Fields{"port": conf.Port, "br level": conf.BrotliLevel, "gzip level": conf.GZipLevel}).Debug("Starting listener")
@@ -68,7 +68,7 @@ func Run(conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache
 }
 
 // ConfigureServeMux configures the main mux with a handler for SystemInfo and another for everything else
-func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
+func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router *proxy.Router, logger *apexlog.Logger, cache caching.Cache) {
 	s.Handle("/__SYSTEMINFO", basicAuth(showSystemInfo(), conf.AdminName, conf.AdminPass, "Restricted"))
 	s.HandleFunc("/__RRROUTER/health", func(w http.ResponseWriter, req *http.Request) {
 		if cache != nil {
@@ -83,7 +83,7 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router proxy.Route
 	s.HandleFunc("/", cachingHandler(router, logger, conf, cache))
 }
 
-func cachingHandler(router proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
+func cachingHandler(router *proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
 		m := mets.NewMetrics(or.URL.RequestURI(), nil, nil)
 		ctx := context.WithValue(or.Context(), "metrics", m)

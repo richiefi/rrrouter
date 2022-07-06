@@ -36,11 +36,11 @@ type RequestResult struct {
 }
 
 // Router is the meat of rrrouter
-type Router interface {
-	RouteRequest(context.Context, *http.Request, *url.URL, *Rule) (*RequestResult, error)
-	GetRoutingFlavors(*http.Request) RoutingFlavors
-	SetRules(*Rules)
-}
+//type Router interface {
+//	RouteRequest(context.Context, *http.Request, *url.URL, *Rule) (*RequestResult, error)
+//	GetRoutingFlavors(*http.Request) RoutingFlavors
+//	SetRules(*Rules)
+//}
 
 type RoutingFlavors struct {
 	CacheId           string
@@ -103,7 +103,8 @@ func (rp *roundTripPerformer) CloseIdleConnections() {
 	rp.roundTripper.CloseIdleConnections()
 }
 
-type router struct {
+// Router is the meat of rrrouter
+type Router struct {
 	rules            *Rules
 	logger           *apexlog.Logger
 	config           *config.Config
@@ -111,7 +112,7 @@ type router struct {
 }
 
 // NewRouter creates a new router with given Rules
-func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router {
+func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) *Router {
 	// Same values as in DefaultTransport, with the addition of
 	// increased MaxIdleConnsPerHost (it defaults to DefaultMaxIdleConnsPerHost)
 	transport := &http.Transport{
@@ -134,7 +135,7 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 		MaxIdleConnsPerHost:   1000,
 	}
 
-	return &router{
+	return &Router{
 		rules:            rules,
 		logger:           logger,
 		config:           conf,
@@ -143,8 +144,8 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) Router
 }
 
 // NewRouterWithPerformer is NewRouter with a specific requestPerformer
-func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.Config, performer requestPerformer) Router {
-	return &router{
+func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.Config, performer requestPerformer) *Router {
+	return &Router{
 		rules:            rules,
 		logger:           logger,
 		config:           conf,
@@ -152,7 +153,7 @@ func NewRouterWithPerformer(rules *Rules, logger *apexlog.Logger, conf *config.C
 	}
 }
 
-func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
+func (r *Router) RouteRequest(ctx context.Context, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*RequestResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.RouteRequest"})
 	logctx.Debug("Enter")
 	urlMatch, err := r.createUrlMatch(req, nil, logctx)
@@ -163,7 +164,7 @@ func (r *router) RouteRequest(ctx context.Context, req *http.Request, overrideUR
 	return r.routeRequest(ctx, urlMatch, req, overrideURL, fallbackRule, logctx)
 }
 
-func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx *apexlog.Entry) (*urlMatch, error) {
+func (r *Router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx *apexlog.Entry) (*urlMatch, error) {
 	fullURL := completeURL(req)
 	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method, overrideRules)
 	if err != nil {
@@ -173,7 +174,7 @@ func (r *router) createUrlMatch(req *http.Request, overrideRules *Rules, logctx 
 	return urlMatch, nil
 }
 
-func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) (*RequestResult, error) {
+func (r *Router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule, logctx *apexlog.Entry) (*RequestResult, error) {
 	requestsResult, err := r.createOutgoingRequests(urlMatch, req, overrideURL, fallbackRule)
 	if err != nil {
 		logctx.WithError(err).Error("error creating outgoing request")
@@ -260,7 +261,7 @@ func (r *router) routeRequest(ctx context.Context, urlMatch *urlMatch, req *http
 	}, nil
 }
 
-func (r *router) follow(ctx context.Context, req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, *url.URL, error) {
+func (r *Router) follow(ctx context.Context, req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, *url.URL, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.follow"})
 
 	var redirectedURL *url.URL
@@ -297,7 +298,7 @@ func canTransform(cc string) bool {
 	return true
 }
 
-func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
+func (r *Router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
 	rf := RoutingFlavors{}
 	ruleMatchResults, err := r.createRuleMatchResults(req, nil)
 	if err != nil {
@@ -310,7 +311,7 @@ func (r *router) GetRoutingFlavors(req *http.Request) RoutingFlavors {
 	}
 }
 
-func (r *router) getRoutingFlavors(rule *Rule) RoutingFlavors {
+func (r *Router) getRoutingFlavors(rule *Rule) RoutingFlavors {
 	rf := RoutingFlavors{}
 	rf.CacheId = rule.cacheId
 	rf.ForceRevalidate = rule.forceRevalidate
@@ -330,7 +331,7 @@ func (r *router) getRoutingFlavors(rule *Rule) RoutingFlavors {
 	return rf
 }
 
-func (r *router) createRuleMatchResults(req *http.Request, overrideRules *Rules) (*RuleMatchResults, error) {
+func (r *Router) createRuleMatchResults(req *http.Request, overrideRules *Rules) (*RuleMatchResults, error) {
 	reqdst := destinationString(completeURL(req))
 	var ruleMatchResults *RuleMatchResults
 	var err error
@@ -343,7 +344,7 @@ func (r *router) createRuleMatchResults(req *http.Request, overrideRules *Rules)
 	return ruleMatchResults, err
 }
 
-func (r *router) SetRules(rules *Rules) {
+func (r *Router) SetRules(rules *Rules) {
 	r.logger.Debugf("Refreshing rules\n")
 	r.rules = rules
 }
@@ -376,7 +377,7 @@ func setContentLength(req *http.Request) error {
 	return nil
 }
 
-func (r *router) performRequest(req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, error) {
+func (r *Router) performRequest(req *http.Request, requestData []byte, retryAllowed bool) (*http.Response, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.performRequest"})
 	logctx.Debug("Enter")
 
@@ -455,7 +456,7 @@ type createRequestsResult struct {
 	retryRule         *Rule
 }
 
-func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
+func (r *Router) RuleForCaching(req *http.Request) (*Rule, error) {
 	fullURL := completeURL(req)
 	urlMatch, err := r.createOutgoingURLs(fullURL, req.Method, nil)
 	if err != nil {
@@ -468,7 +469,7 @@ func (r *router) RuleForCaching(req *http.Request) (*Rule, error) {
 	return nil, nil
 }
 
-func (r *router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*createRequestsResult, error) {
+func (r *Router) createOutgoingRequests(urlMatch *urlMatch, req *http.Request, overrideURL *url.URL, fallbackRule *Rule) (*createRequestsResult, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createOutgoingRequest"})
 	var mainRequest *http.Request
 	var err error
@@ -541,7 +542,7 @@ func filterHeader(originalHeader http.Header, filteredHeaderNames []string) http
 	return newHeader
 }
 
-func (r *router) createProxyRequest(req *http.Request, internal bool, hostHeader HostHeader, url *url.URL) (*http.Request, error) {
+func (r *Router) createProxyRequest(req *http.Request, internal bool, hostHeader HostHeader, url *url.URL) (*http.Request, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createProxyRequest", "url": url})
 	logctx.Debug("Constructing outgoing request")
 	preq, err := http.NewRequestWithContext(req.Context(), req.Method, url.String(), req.Body)
@@ -629,7 +630,7 @@ type urlMatch struct {
 	copyRule *Rule
 }
 
-func (r *router) createOutgoingURLs(sourceURL *url.URL, method string, overrideRules *Rules) (*urlMatch, error) {
+func (r *Router) createOutgoingURLs(sourceURL *url.URL, method string, overrideRules *Rules) (*urlMatch, error) {
 	logctx := r.logger.WithFields(apexlog.Fields{"func": "router.createOutgoingURL", "sourceURL": sourceURL})
 	logctx.Debug("Enter")
 	reqdst := destinationString(sourceURL)
