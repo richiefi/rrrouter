@@ -83,7 +83,7 @@ type requestPerformer interface {
 }
 
 type roundTripPerformer struct {
-	roundTripper purgeableRoundTripper
+	roundTripper *http.Transport
 }
 
 type purgeableRoundTripper interface {
