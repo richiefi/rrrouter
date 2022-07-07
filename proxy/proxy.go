@@ -125,7 +125,7 @@ func NewRouter(rules *Rules, logger *apexlog.Logger, conf *config.Config) *Route
 				PreferGo: true,
 			},
 		}).DialContext,
-		ForceAttemptHTTP2:     true,
+		ForceAttemptHTTP2:     false,
 		MaxConnsPerHost:       1000,
 		MaxIdleConns:          1000,
 		IdleConnTimeout:       10 * time.Second,
