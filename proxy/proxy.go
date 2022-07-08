@@ -403,6 +403,9 @@ func (r *Router) performRequest(req *http.Request, requestData []byte, retryAllo
 				break
 			}
 			if errors.Is(err, context.Canceled) {
+				if resp != nil {
+					resp.Body.Close()
+				}
 				return nil, err
 			}
 
@@ -423,6 +426,9 @@ func (r *Router) performRequest(req *http.Request, requestData []byte, retryAllo
 	}
 
 	if err != nil {
+		if resp != nil {
+			resp.Body.Close()
+		}
 		// Also purge connections after failed POSTs and failed last tries
 		r.requestPerformer.CloseIdleConnections()
 		if isClientClose(err) {
