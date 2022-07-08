@@ -10,7 +10,6 @@ import (
 	"github.com/getsentry/sentry-go"
 	"github.com/richiefi/rrrouter/caching"
 	"github.com/richiefi/rrrouter/config"
-	mets "github.com/richiefi/rrrouter/metrics"
 	"github.com/richiefi/rrrouter/proxy"
 	"github.com/richiefi/rrrouter/usererror"
 	"github.com/richiefi/rrrouter/util"
@@ -85,9 +84,7 @@ func ConfigureServeMux(s *http.ServeMux, conf *config.Config, router *proxy.Rout
 
 func cachingHandler(router *proxy.Router, logger *apexlog.Logger, conf *config.Config, cache caching.Cache) func(http.ResponseWriter, *http.Request) {
 	return func(ow http.ResponseWriter, or *http.Request) {
-		m := mets.NewMetrics(or.URL.RequestURI(), nil, nil)
-		ctx := context.WithValue(or.Context(), "metrics", m)
-		defer m.ReportAndClose(time.Now())
+		ctx := or.Context()
 		defer sentry.Recover()
 
 		var cachingFunc func(*http.ResponseWriter, *http.Request, *url.URL, *http.Header, *proxy.RoutingFlavors, bool, bool)
